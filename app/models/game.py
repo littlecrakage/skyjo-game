@@ -96,6 +96,20 @@ class Game(db.Model):
             'player_count': self.player_count(),
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+        
+        # Add current player info
+        current = self.get_current_player()
+        if current:
+            data['current_player_id'] = current.id
+            data['current_player_name'] = current.name
+        
+        # Add pile info for playing state
+        if self.status == 'playing':
+            draw_pile = self.get_draw_pile()
+            discard_pile = self.get_discard_pile()
+            data['draw_pile_count'] = len(draw_pile)
+            data['discard_top'] = discard_pile[-1] if discard_pile else None
+        
         if include_players:
             data['players'] = [p.to_dict() for p in self.players.order_by(Player.turn_order).all()]
         return data
@@ -154,13 +168,22 @@ class Player(db.Model):
         return sum(1 for card in self.get_cards() if card.get('revealed', False))
     
     def all_revealed(self):
-        """Check if all cards are revealed."""
+        """Check if all non-eliminated cards are revealed."""
         cards = self.get_cards()
-        return len(cards) > 0 and all(card.get('revealed', False) for card in cards)
+        active_cards = [c for c in cards if not c.get('eliminated', False)]
+        return len(active_cards) > 0 and all(card.get('revealed', False) for card in active_cards)
     
     def calculate_score(self):
         """Calculate score from revealed cards."""
         return sum(card['value'] for card in self.get_cards() if card.get('revealed', False))
+    
+    def calculate_visible_score(self):
+        """Calculate score from revealed, non-eliminated cards."""
+        cards = self.get_cards()
+        return sum(
+            card['value'] for card in cards 
+            if card.get('revealed', False) and not card.get('eliminated', False)
+        )
     
     def to_dict(self, show_hidden=False):
         """Convert to dictionary for JSON response.
@@ -173,8 +196,16 @@ class Player(db.Model):
         # For display, hide unrevealed card values unless show_hidden is True
         if not show_hidden:
             cards = [
-                {'value': card['value'], 'revealed': True} if card.get('revealed') 
-                else {'value': None, 'revealed': False}
+                {
+                    'value': card['value'], 
+                    'revealed': True,
+                    'eliminated': card.get('eliminated', False)
+                } if card.get('revealed') 
+                else {
+                    'value': None, 
+                    'revealed': False,
+                    'eliminated': card.get('eliminated', False)
+                }
                 for card in cards
             ]
         
@@ -187,6 +218,7 @@ class Player(db.Model):
             'turn_order': self.turn_order,
             'score': self.score,
             'round_score': self.round_score,
+            'visible_score': self.calculate_visible_score(),
             'is_connected': self.is_connected,
             'cards': cards,
             'held_card': self.held_card,

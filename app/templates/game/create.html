@@ -4,54 +4,53 @@
 
 {% block content %}
 <header>
-    <a href="{{ url_for('main.index') }}" class="back-link">← Back</a>
-    <h1>Create Game</h1>
+    <a href="{{ url_for('main.index') }}" class="back-link" data-i18n="back">← Back</a>
+    <h1 data-i18n="create_title">Create Game</h1>
 </header>
 
 <main>
     <form method="POST" class="form-card">
         <div class="form-group">
-            <label for="player_name">Your Name</label>
+            <label for="player_name" data-i18n="your_name">Your Name</label>
             <input type="text" id="player_name" name="player_name" 
-                   placeholder="Enter your name" maxlength="50" required>
+                   placeholder="Enter your name" data-i18n="enter_name" maxlength="50" required>
         </div>
         
         <div class="form-group">
-            <label for="max_players">Max Players</label>
+            <label for="max_players" data-i18n="max_players">Max Players</label>
             <select id="max_players" name="max_players">
-                <option value="2">2 Players</option>
-                <option value="3">3 Players</option>
-                <option value="4" selected>4 Players</option>
-                <option value="5">5 Players</option>
-                <option value="6">6 Players</option>
-                <option value="7">7 Players</option>
-                <option value="8">8 Players</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4" selected>4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
             </select>
         </div>
         
         <div class="form-group">
-            <label for="turn_timer">Turn Timer (seconds)</label>
+            <label for="turn_timer" data-i18n="turn_timer">Turn Timer (seconds)</label>
             <input type="number" id="turn_timer" name="turn_timer" 
                    value="60" min="0" max="300">
-            <small>Set to 0 for unlimited time</small>
+            <small data-i18n="unlimited_time">Set to 0 for unlimited time</small>
         </div>
         
         <div class="form-group checkbox-group">
             <label>
                 <input type="checkbox" name="is_public" checked>
-                Public game (visible in lobby list)
+                <span data-i18n="public_game">Public game (visible in lobby list)</span>
             </label>
         </div>
         
         <div class="form-group checkbox-group">
             <label>
                 <input type="checkbox" name="finish_round" checked>
-                Finish round when a player reveals all cards
+                <span data-i18n="finish_round">Finish round when a player reveals all cards</span>
             </label>
-            <small>If unchecked, game ends immediately</small>
         </div>
         
-        <button type="submit" class="btn btn-primary btn-full">Create Game</button>
+        <button type="submit" class="btn btn-primary btn-full" data-i18n="create_btn">Create Game</button>
     </form>
 </main>
 {% endblock %}

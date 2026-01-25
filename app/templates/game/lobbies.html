@@ -4,17 +4,17 @@
 
 {% block content %}
 <header>
-    <a href="{{ url_for('main.index') }}" class="back-link">← Back</a>
-    <h1>Public Lobbies</h1>
+    <a href="{{ url_for('main.index') }}" class="back-link" data-i18n="back">← Back</a>
+    <h1 data-i18n="lobbies_title">Public Lobbies</h1>
 </header>
 
 <main>
     <div id="lobbies-container">
-        <div class="loading">Loading games...</div>
+        <div class="loading" data-i18n="loading">Loading games...</div>
     </div>
     
     <div class="mt-3">
-        <a href="{{ url_for('game.create') }}" class="btn btn-primary btn-full">
+        <a href="{{ url_for('game.create') }}" class="btn btn-primary btn-full" data-i18n="create_new">
             Create New Game
         </a>
     </div>
@@ -23,46 +23,40 @@
 
 {% block scripts %}
 <script>
-    async function loadLobbies() {
-        const container = document.getElementById('lobbies-container');
+    function loadLobbies() {
+        var container = document.getElementById('lobbies-container');
         
-        try {
-            const response = await fetch('/game/api/lobbies');
-            const data = await response.json();
-            
-            if (data.games.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <p>No public games available</p>
-                        <p class="text-muted">Create one or check back later!</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            container.innerHTML = data.games.map(game => `
-                <div class="lobby-card">
-                    <div class="lobby-info">
-                        <div class="lobby-code">${game.code}</div>
-                        <div class="lobby-details">
-                            <span>${game.player_count}/${game.max_players} players</span>
-                            <span>•</span>
-                            <span>${game.turn_timer > 0 ? game.turn_timer + 's turns' : 'No timer'}</span>
-                        </div>
-                    </div>
-                    <a href="/game/join?code=${game.code}" class="btn btn-secondary btn-small">
-                        Join
-                    </a>
-                </div>
-            `).join('');
-            
-        } catch (error) {
-            container.innerHTML = `
-                <div class="alert alert-error">
-                    Failed to load lobbies. Please try again.
-                </div>
-            `;
-        }
+        fetch('/game/api/lobbies')
+            .then(function(response) { return response.json(); })
+            .then(function(data) {
+                if (data.games.length === 0) {
+                    container.innerHTML = '<div class="empty-state">' +
+                        '<p data-i18n="no_games">' + t('no_games') + '</p>' +
+                        '<p class="text-muted" data-i18n="check_back">' + t('check_back') + '</p>' +
+                    '</div>';
+                    return;
+                }
+                
+                var html = data.games.map(function(game) {
+                    var timerText = game.turn_timer > 0 ? game.turn_timer + 's ' + t('turns') : t('no_timer');
+                    return '<div class="lobby-card">' +
+                        '<div class="lobby-info">' +
+                            '<div class="lobby-code">' + game.code + '</div>' +
+                            '<div class="lobby-details">' +
+                                '<span>' + game.player_count + '/' + game.max_players + ' ' + t('players_count').toLowerCase() + '</span>' +
+                                '<span>•</span>' +
+                                '<span>' + timerText + '</span>' +
+                            '</div>' +
+                        '</div>' +
+                        '<a href="/game/join?code=' + game.code + '" class="btn btn-secondary btn-small">' + t('join') + '</a>' +
+                    '</div>';
+                }).join('');
+                
+                container.innerHTML = html;
+            })
+            .catch(function(error) {
+                container.innerHTML = '<div class="alert alert-error">Failed to load lobbies. Please try again.</div>';
+            });
     }
     
     // Load immediately and refresh every 5 seconds

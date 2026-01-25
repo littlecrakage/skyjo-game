@@ -4,19 +4,19 @@
 
 {% block content %}
 <header>
-    <h1>Skyjo</h1>
-    <p class="subtitle">The card game</p>
+    <h1 data-i18n="home_title">Skyjo</h1>
+    <p class="subtitle" data-i18n="home_subtitle">The card game</p>
 </header>
 
 <main>
     <div class="menu">
-        <a href="{{ url_for('game.create') }}" class="btn btn-primary">Create Game</a>
-        <a href="{{ url_for('game.join') }}" class="btn btn-secondary">Join Game</a>
-        <a href="{{ url_for('game.lobbies') }}" class="btn btn-secondary">Public Lobbies</a>
+        <a href="{{ url_for('game.create') }}" class="btn btn-primary" data-i18n="create_game">Create Game</a>
+        <a href="{{ url_for('game.join') }}" class="btn btn-secondary" data-i18n="join_game">Join Game</a>
+        <a href="{{ url_for('game.lobbies') }}" class="btn btn-secondary" data-i18n="public_lobbies">Public Lobbies</a>
     </div>
 </main>
 
 <footer>
-    <p>Built with Flask & SocketIO</p>
+    <p data-i18n="footer_text">Built with Flask & SocketIO</p>
 </footer>
 {% endblock %}

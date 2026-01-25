@@ -1,0 +1,611 @@
+{% extends "base.html" %}
+
+{% block title %}Game {{ game.code }} - Skyjo{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/game.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="game-container">
+    <!-- Game Header -->
+    <header class="game-header">
+        <div class="game-info">
+            <span class="game-code">{{ game.code }}</span>
+            <span class="round-info"><span data-i18n="round">Round</span> {{ game.round_number }}</span>
+        </div>
+        <div id="turn-indicator" class="turn-indicator">
+            <!-- Updated via JS -->
+        </div>
+        <div id="timer" class="timer" style="display: none;">
+            <span id="timer-value">60</span>s
+        </div>
+    </header>
+
+    <!-- Main Game Area -->
+    <div class="game-area">
+        <!-- Other Players (top) -->
+        <div id="opponents" class="opponents-area">
+            <!-- Rendered via JS -->
+        </div>
+
+        <!-- Center: Draw & Discard Piles -->
+        <div class="center-area">
+            <div class="piles-row">
+                <div class="piles">
+                    <div id="draw-pile" class="pile draw-pile">
+                        <div class="card card-back">
+                            <span class="card-count" id="draw-count">0</span>
+                        </div>
+                        <span class="pile-label" data-i18n="draw">Draw</span>
+                    </div>
+                    
+                    <div id="discard-pile" class="pile discard-pile">
+                        <div class="card" id="discard-top">
+                            <span class="card-value">-</span>
+                        </div>
+                        <span class="pile-label" data-i18n="discard">Discard</span>
+                    </div>
+                </div>
+                
+                <!-- Held Card (when player draws) -->
+                <div id="held-card-area" class="held-card-area" style="display: none;">
+                    <div class="held-card-label" data-i18n="your_card">Your card:</div>
+                    <div class="card held-card" id="held-card">
+                        <span class="card-value">0</span>
+                    </div>
+                    <button id="discard-held-btn" class="btn btn-secondary btn-small" data-i18n="discard_reveal">Discard & Reveal</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Current Player's Cards (bottom) -->
+        <div class="my-area">
+            <div class="my-info">
+                <span class="my-name">{{ player.name if player else 'Spectator' }}</span>
+                <span class="my-score" id="my-score"><span data-i18n="round_score">Round</span>: 0 | <span data-i18n="total_score">Total</span>: {{ player.score if player else 0 }}</span>
+            </div>
+            <div id="my-cards" class="card-grid">
+                <!-- Rendered via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Phase Message (non-blocking) -->
+    <div id="phase-message-bar" class="phase-message-bar" style="display: none;">
+        <span id="phase-title">Reveal 2 Cards</span> - <span id="phase-message">Click 2 cards to reveal</span>
+    </div>
+
+    <!-- Round End Overlay -->
+    <div id="round-end-overlay" class="round-end-overlay" style="display: none;">
+        <div class="round-end-content">
+            <h2 data-i18n="round_over">Round Over!</h2>
+            <div id="round-scores" class="round-scores">
+                <!-- Rendered via JS -->
+            </div>
+            <button id="next-round-btn" class="btn btn-primary" style="display: none;" data-i18n="next_round">
+                Next Round
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+    // Game constants
+    var GAME_CODE = "{{ game.code }}";
+    var PLAYER_ID = {{ player.id if player else 'null' }};
+    var IS_SPECTATOR = {{ 'true' if not player else 'false' }};
+    var TURN_TIMER = {{ game.turn_timer }};
+    
+    // Game state
+    var gameState = null;
+    var myPlayer = null;
+    var isMyTurn = false;
+    var gamePhase = 'waiting';
+    var turnPhase = 'draw';
+    var timerInterval = null;
+    
+    // Connect to WebSocket
+    var socket = io();
+    
+    socket.on('connect', function() {
+        console.log('Connected to game');
+        socket.emit('join_room', { code: GAME_CODE });
+    });
+    
+    socket.on('disconnect', function() {
+        showNotification('Connection lost. Reconnecting...', 'error');
+    });
+    
+    socket.on('error', function(data) {
+        showNotification(data.message, 'error');
+    });
+    
+    // Game state update
+    socket.on('game_state', function(game) {
+        console.log('Game state received:', game);
+        console.log('PLAYER_ID:', PLAYER_ID);
+        gameState = game;
+        myPlayer = null;
+        if (game.players) {
+            for (var i = 0; i < game.players.length; i++) {
+                console.log('Player ' + i + ':', game.players[i].id, game.players[i].name);
+                if (game.players[i].id === PLAYER_ID) {
+                    myPlayer = game.players[i];
+                    break;
+                }
+            }
+        }
+        console.log('myPlayer found:', myPlayer);
+        updateUI();
+    });
+    
+    // Card drawn
+    socket.on('card_drawn', function(data) {
+        if (data.player_id === PLAYER_ID) {
+            turnPhase = 'place_or_discard';
+            showHeldCard(data.card_value);
+        }
+        showNotification(data.player_name + ' drew a card');
+    });
+    
+    // Card placed
+    socket.on('card_placed', function(data) {
+        showNotification(data.player_name + ' placed a card');
+    });
+    
+    // Card revealed
+    socket.on('card_revealed', function(data) {
+        showNotification(data.player_name + ' revealed a card');
+    });
+    
+    // Column eliminated
+    socket.on('column_eliminated', function(data) {
+        showNotification(data.player_name + ' eliminated a column!', 'success');
+    });
+    
+    // Turn changed
+    socket.on('turn_changed', function(data) {
+        updateTurnIndicator(data.current_player_id, data.current_player_name);
+        if (data.current_player_id === PLAYER_ID) {
+            turnPhase = 'draw';
+            showNotification(t('your_turn'), 'success');
+            startTimer();
+        }
+    });
+    
+    // Round ended
+    socket.on('round_ended', function(data) {
+        showRoundEnd(data.scores, data.trigger_player);
+    });
+    
+    // Game ended
+    socket.on('game_ended', function(data) {
+        showGameEnd(data.winner, data.final_scores);
+    });
+    
+    // Initial reveal complete
+    socket.on('initial_reveal_complete', function(data) {
+        if (data.all_ready) {
+            gamePhase = 'playing';
+            hidePhaseOverlay();
+        }
+    });
+    
+    // ============ UI Functions ============
+    
+    function updateUI() {
+        if (!gameState) {
+            console.log('No gameState yet');
+            return;
+        }
+        console.log('Updating UI with gameState:', gameState);
+        console.log('Players count:', gameState.players ? gameState.players.length : 0);
+        console.log('myPlayer:', myPlayer);
+        
+        try {
+            updatePhase();
+            updateOpponents();
+            updateMyCards();
+            updatePiles();
+            updateTurnIndicator();
+        } catch (e) {
+            console.error('Error in updateUI:', e);
+        }
+    }
+    
+    function updateOpponents() {
+        var container = document.getElementById('opponents');
+        var opponents = [];
+        for (var i = 0; i < gameState.players.length; i++) {
+            if (gameState.players[i].id !== PLAYER_ID) {
+                opponents.push(gameState.players[i]);
+            }
+        }
+        
+        var html = '';
+        for (var i = 0; i < opponents.length; i++) {
+            var p = opponents[i];
+            var classes = 'opponent';
+            if (isCurrentPlayer(p.id)) classes += ' is-current';
+            if (!p.is_connected) classes += ' disconnected';
+            
+            html += '<div class="' + classes + '">';
+            html += '<div class="opponent-info">';
+            html += '<span class="opponent-name">' + escapeHtml(p.name) + (p.is_bot ? ' 🤖' : '') + '</span>';
+            html += '<span class="opponent-score">' + t('round_score') + ': ' + p.visible_score + ' | ' + t('total_score') + ': ' + p.score + '</span>';
+            html += '</div>';
+            html += '<div class="opponent-cards card-grid-small">' + renderCards(p.cards, false, p.id) + '</div>';
+            html += '</div>';
+        }
+        container.innerHTML = html;
+    }
+    
+    function updateMyCards() {
+        var container = document.getElementById('my-cards');
+        if (!myPlayer) {
+            container.innerHTML = '<p class="spectator-message">Watching as spectator</p>';
+            return;
+        }
+        
+        if (!myPlayer.cards || myPlayer.cards.length === 0) {
+            container.innerHTML = '<p>Loading cards...</p>';
+            return;
+        }
+        
+        var canClick = isMyTurn || gamePhase === 'initial_reveal';
+        container.innerHTML = renderCards(myPlayer.cards, canClick, PLAYER_ID);
+        document.getElementById('my-score').textContent = t('round_score') + ': ' + myPlayer.visible_score + ' | ' + t('total_score') + ': ' + myPlayer.score;
+    }
+    
+    function renderCards(cards, clickable, playerId) {
+        if (!cards || cards.length === 0) {
+            return '<p>No cards</p>';
+        }
+        
+        var matchingColumns = findMatchingColumns(cards);
+        var html = '';
+        
+        for (var index = 0; index < cards.length; index++) {
+            var card = cards[index];
+            var isRevealed = card.revealed;
+            var isEliminated = card.eliminated || false;
+            var value = isRevealed ? card.value : '?';
+            var colorClass = isRevealed && !isEliminated ? getCardColorClass(card.value) : '';
+            var eliminatedClass = isEliminated ? 'card-eliminated' : '';
+            var colIndex = index % 4;
+            var matchingClass = (matchingColumns.indexOf(colIndex) !== -1) && !isEliminated ? 'card-matching' : '';
+            
+            var classes = 'card ' + (isRevealed ? 'revealed' : 'hidden') + ' ' + colorClass + ' ' + eliminatedClass + ' ' + matchingClass;
+            var clickHandler = (clickable && !isEliminated) ? ' onclick="handleCardClick(' + index + ', ' + playerId + ')"' : '';
+            
+            html += '<div class="' + classes + '" data-index="' + index + '"' + clickHandler + '>';
+            html += '<span class="card-value">' + (isEliminated ? '✕' : value) + '</span>';
+            html += '</div>';
+        }
+        
+        return html;
+    }
+    
+    function findMatchingColumns(cards) {
+        var matchingCols = [];
+        
+        for (var col = 0; col < 4; col++) {
+            var indices = [col, col + 4, col + 8];
+            var valid = true;
+            
+            for (var i = 0; i < indices.length; i++) {
+                if (indices[i] >= cards.length) {
+                    valid = false;
+                    break;
+                }
+            }
+            if (!valid) continue;
+            
+            var colCards = [cards[indices[0]], cards[indices[1]], cards[indices[2]]];
+            
+            var hasEliminated = false;
+            var allRevealed = true;
+            for (var i = 0; i < colCards.length; i++) {
+                if (colCards[i].eliminated) hasEliminated = true;
+                if (!colCards[i].revealed) allRevealed = false;
+            }
+            
+            if (hasEliminated || !allRevealed) continue;
+            
+            if (colCards[0].value === colCards[1].value && colCards[1].value === colCards[2].value) {
+                matchingCols.push(col);
+            }
+        }
+        
+        return matchingCols;
+    }
+    
+    function getCardColorClass(value) {
+        if (value < 0) return 'card-negative';
+        if (value === 0) return 'card-zero';
+        if (value <= 4) return 'card-low';
+        if (value <= 8) return 'card-medium';
+        return 'card-high';
+    }
+    
+    function updatePiles() {
+        var drawCount = document.getElementById('draw-count');
+        if (gameState.draw_pile_count !== undefined) {
+            drawCount.textContent = gameState.draw_pile_count;
+        }
+        
+        var discardTop = document.getElementById('discard-top');
+        if (gameState.discard_top !== null && gameState.discard_top !== undefined) {
+            discardTop.innerHTML = '<span class="card-value">' + gameState.discard_top + '</span>';
+            discardTop.className = 'card ' + getCardColorClass(gameState.discard_top);
+        } else {
+            discardTop.innerHTML = '<span class="card-value">-</span>';
+            discardTop.className = 'card';
+        }
+    }
+    
+    function updateTurnIndicator(currentPlayerId, currentPlayerName) {
+        var indicator = document.getElementById('turn-indicator');
+        var current = currentPlayerId || (gameState && gameState.current_player_id);
+        var name = currentPlayerName || (gameState && gameState.current_player_name);
+        
+        isMyTurn = current === PLAYER_ID;
+        
+        if (gamePhase === 'initial_reveal') {
+            indicator.textContent = t('reveal_cards');
+            indicator.className = 'turn-indicator';
+        } else if (isMyTurn) {
+            indicator.textContent = t('your_turn');
+            indicator.className = 'turn-indicator my-turn';
+        } else if (name) {
+            indicator.textContent = t('waiting_turn') + ' ' + name;
+            indicator.className = 'turn-indicator';
+        }
+    }
+    
+    function updatePhase() {
+        if (gameState.status === 'playing') {
+            if (myPlayer && myPlayer.revealed_count < 2) {
+                gamePhase = 'initial_reveal';
+                showPhaseOverlay(t('reveal_cards'), t('click_reveal'));
+            } else {
+                gamePhase = 'playing';
+                hidePhaseOverlay();
+            }
+        }
+    }
+    
+    function showPhaseOverlay(title, message) {
+        document.getElementById('phase-title').textContent = title;
+        document.getElementById('phase-message').textContent = message;
+        document.getElementById('phase-message-bar').style.display = 'block';
+    }
+    
+    function hidePhaseOverlay() {
+        document.getElementById('phase-message-bar').style.display = 'none';
+    }
+    
+    function showHeldCard(value) {
+        var area = document.getElementById('held-card-area');
+        var card = document.getElementById('held-card');
+        card.innerHTML = '<span class="card-value">' + value + '</span>';
+        card.className = 'card held-card ' + getCardColorClass(value);
+        area.style.display = 'flex';
+    }
+    
+    function hideHeldCard() {
+        document.getElementById('held-card-area').style.display = 'none';
+    }
+    
+    function isCurrentPlayer(playerId) {
+        return gameState && gameState.current_player_id === playerId;
+    }
+    
+    function showRoundEnd(scores, triggerPlayer) {
+        var overlay = document.getElementById('round-end-overlay');
+        var scoresDiv = document.getElementById('round-scores');
+        
+        var html = '';
+        for (var i = 0; i < scores.length; i++) {
+            var s = scores[i];
+            html += '<div class="score-row ' + (s.triggered ? 'triggered' : '') + '">';
+            html += '<span class="player-name">' + escapeHtml(s.name) + '</span>';
+            html += '<span class="round-score">+' + s.round_score + '</span>';
+            html += '<span class="total-score">' + t('total_score') + ': ' + s.total_score + '</span>';
+            html += '</div>';
+        }
+        scoresDiv.innerHTML = html;
+        
+        overlay.style.display = 'flex';
+        
+        if (myPlayer && myPlayer.is_host) {
+            document.getElementById('next-round-btn').style.display = 'block';
+        }
+    }
+    
+    function showGameEnd(winner, scores) {
+        var overlay = document.getElementById('round-end-overlay');
+        var content = overlay.querySelector('.round-end-content');
+        
+        var html = '<h2>🏆 ' + t('game_over') + '</h2>';
+        html += '<p class="winner-announcement">' + t('winner') + ': ' + escapeHtml(winner) + '!</p>';
+        html += '<div class="final-scores">';
+        
+        // Sort by score (lowest first)
+        scores.sort(function(a, b) { return a.total_score - b.total_score; });
+        
+        for (var i = 0; i < scores.length; i++) {
+            var s = scores[i];
+            var isWinner = s.name === winner;
+            html += '<div class="score-row ' + (isWinner ? 'winner' : '') + '">';
+            html += '<span class="rank">#' + (i + 1) + '</span>';
+            html += '<span class="player-name">' + escapeHtml(s.name) + (isWinner ? ' 🏆' : '') + '</span>';
+            html += '<span class="total-score">' + s.total_score + ' pts</span>';
+            html += '</div>';
+        }
+        html += '</div>';
+        html += '<a href="/" class="btn btn-primary">' + t('back_home') + '</a>';
+        
+        content.innerHTML = html;
+        overlay.style.display = 'flex';
+        
+        // Hide next round button
+        var nextBtn = document.getElementById('next-round-btn');
+        if (nextBtn) nextBtn.style.display = 'none';
+    }
+    
+    function startTimer() {
+        if (TURN_TIMER <= 0) return;
+        
+        var timerDiv = document.getElementById('timer');
+        var timerValue = document.getElementById('timer-value');
+        var remaining = TURN_TIMER;
+        
+        timerDiv.style.display = 'block';
+        timerValue.textContent = remaining;
+        
+        clearInterval(timerInterval);
+        timerInterval = setInterval(function() {
+            remaining--;
+            timerValue.textContent = remaining;
+            
+            if (remaining <= 10) {
+                timerDiv.classList.add('timer-warning');
+            }
+            
+            if (remaining <= 0) {
+                clearInterval(timerInterval);
+            }
+        }, 1000);
+    }
+    
+    function stopTimer() {
+        clearInterval(timerInterval);
+        document.getElementById('timer').style.display = 'none';
+        document.getElementById('timer').classList.remove('timer-warning');
+    }
+    
+    // ============ Game Actions ============
+    
+    function handleCardClick(index, playerId) {
+        console.log('Card clicked:', index, 'playerId:', playerId, 'gamePhase:', gamePhase, 'turnPhase:', turnPhase);
+        
+        if (IS_SPECTATOR) {
+            return;
+        }
+        
+        // Initial reveal phase
+        if (gamePhase === 'initial_reveal' && playerId === PLAYER_ID) {
+            socket.emit('reveal_initial', { 
+                code: GAME_CODE, 
+                card_index: index 
+            });
+            return;
+        }
+        
+        // Normal gameplay - must be our turn
+        if (!isMyTurn) {
+            return;
+        }
+        
+        if (playerId !== PLAYER_ID) {
+            return;
+        }
+        
+        // Must draw first
+        if (turnPhase === 'draw') {
+            showNotification('Draw a card first (click draw pile or discard pile)', 'error');
+            return;
+        }
+        
+        // If holding a card, place it
+        if (turnPhase === 'place_or_discard' && myPlayer && myPlayer.held_card !== null) {
+            socket.emit('place_card', { 
+                code: GAME_CODE, 
+                card_index: index 
+            });
+            hideHeldCard();
+            turnPhase = 'draw';
+        }
+        // If in reveal phase (after discarding), reveal a face-down card
+        else if (turnPhase === 'reveal') {
+            var card = myPlayer.cards[index];
+            if (card && !card.revealed) {
+                socket.emit('reveal_card', { 
+                    code: GAME_CODE, 
+                    card_index: index 
+                });
+                turnPhase = 'draw';
+            } else {
+                showNotification('Select a face-down card to reveal', 'error');
+            }
+        }
+    }
+    
+    // Draw from draw pile
+    document.getElementById('draw-pile').addEventListener('click', function() {
+        if (!isMyTurn || IS_SPECTATOR) return;
+        if (turnPhase !== 'draw') {
+            showNotification('You already drew a card this turn', 'error');
+            return;
+        }
+        if (myPlayer && myPlayer.held_card !== null) return;
+        socket.emit('draw_card', { code: GAME_CODE, from_discard: false });
+    });
+    
+    // Draw from discard pile
+    document.getElementById('discard-pile').addEventListener('click', function() {
+        if (!isMyTurn || IS_SPECTATOR) return;
+        if (turnPhase !== 'draw') {
+            showNotification('You already drew a card this turn', 'error');
+            return;
+        }
+        if (myPlayer && myPlayer.held_card !== null) return;
+        socket.emit('draw_card', { code: GAME_CODE, from_discard: true });
+    });
+    
+    // Discard held card
+    document.getElementById('discard-held-btn').addEventListener('click', function() {
+        if (!isMyTurn || IS_SPECTATOR) return;
+        socket.emit('discard_held', { code: GAME_CODE });
+        hideHeldCard();
+        turnPhase = 'reveal';
+        showNotification('Now click a face-down card to reveal it');
+    });
+    
+    // Next round button
+    document.getElementById('next-round-btn').addEventListener('click', function() {
+        socket.emit('next_round', { code: GAME_CODE });
+        document.getElementById('round-end-overlay').style.display = 'none';
+    });
+    
+    // ============ Utilities ============
+    
+    function showNotification(message, type) {
+        type = type || 'info';
+        var notif = document.createElement('div');
+        notif.className = 'notification notification-' + type;
+        notif.textContent = message;
+        
+        var container = document.getElementById('notifications');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'notifications';
+            document.body.appendChild(container);
+        }
+        container.appendChild(notif);
+        
+        setTimeout(function() { notif.remove(); }, 3000);
+    }
+    
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+</script>
+{% endblock %}

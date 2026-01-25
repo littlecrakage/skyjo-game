@@ -5,29 +5,29 @@
 {% block content %}
 <header class="room-header">
     <div class="room-info">
-        <h1>Room: <span class="code">{{ game.code }}</span></h1>
+        <h1><span data-i18n="room">Room</span>: <span class="code">{{ game.code }}</span></h1>
         <span class="status-badge status-{{ game.status }}">{{ game.status }}</span>
     </div>
     {% if is_spectator %}
-    <span class="spectator-badge">👁 Spectating</span>
+    <span class="spectator-badge" data-i18n="spectating">👁 Spectating</span>
     {% endif %}
 </header>
 
 <main>
     <!-- Players List -->
     <section class="players-section">
-        <h2>Players ({{ game.player_count() }}/{{ game.max_players }})</h2>
+        <h2><span data-i18n="players_count">Players</span> ({{ game.player_count() }}/{{ game.max_players }})</h2>
         <div id="players-list" class="players-list">
             {% for p in game.players %}
             <div class="player-card {% if p.is_host %}is-host{% endif %} {% if player and p.id == player.id %}is-you{% endif %}">
                 <span class="player-name">
                     {{ p.name }}
-                    {% if p.is_host %}<span class="host-badge">Host</span>{% endif %}
+                    {% if p.is_host %}<span class="host-badge" data-i18n="host">Host</span>{% endif %}
                     {% if p.is_bot %}<span class="bot-badge">🤖</span>{% endif %}
-                    {% if player and p.id == player.id %}<span class="you-badge">(You)</span>{% endif %}
+                    {% if player and p.id == player.id %}<span class="you-badge" data-i18n="you">(You)</span>{% endif %}
                 </span>
                 {% if not p.is_connected %}
-                <span class="disconnected-badge">Disconnected</span>
+                <span class="disconnected-badge" data-i18n="disconnected">Disconnected</span>
                 {% endif %}
             </div>
             {% endfor %}
@@ -36,19 +36,19 @@
     
     <!-- Game Settings (visible to all) -->
     <section class="settings-section">
-        <h2>Settings</h2>
+        <h2 data-i18n="settings">Settings</h2>
         <div class="settings-grid">
             <div class="setting">
-                <span class="setting-label">Turn Timer</span>
+                <span class="setting-label" data-i18n="turn_timer_label">Turn Timer</span>
                 <span class="setting-value">{{ game.turn_timer }}s</span>
             </div>
             <div class="setting">
-                <span class="setting-label">End Condition</span>
-                <span class="setting-value">{{ 'Finish round' if game.finish_round else 'Stop immediately' }}</span>
+                <span class="setting-label" data-i18n="end_condition">End Condition</span>
+                <span class="setting-value" data-i18n="{{ 'finish_round_opt' if game.finish_round else 'stop_immediately' }}">{{ 'Finish round' if game.finish_round else 'Stop immediately' }}</span>
             </div>
             <div class="setting">
-                <span class="setting-label">Visibility</span>
-                <span class="setting-value">{{ 'Public' if game.is_public else 'Private' }}</span>
+                <span class="setting-label" data-i18n="visibility">Visibility</span>
+                <span class="setting-value" data-i18n="{{ 'public' if game.is_public else 'private' }}">{{ 'Public' if game.is_public else 'Private' }}</span>
             </div>
         </div>
     </section>
@@ -56,17 +56,17 @@
     <!-- Host Controls -->
     {% if player and player.is_host and game.status == 'waiting' %}
     <section class="host-controls">
-        <h2>Host Controls</h2>
+        <h2 data-i18n="host_controls">Host Controls</h2>
         <div class="controls-row">
-            <button id="add-bot-btn" class="btn btn-secondary" {% if game.is_full() %}disabled{% endif %}>
+            <button id="add-bot-btn" class="btn btn-secondary" {% if game.is_full() %}disabled{% endif %} data-i18n="add_bot">
                 Add Bot
             </button>
-            <button id="start-game-btn" class="btn btn-primary" {% if game.player_count() < 2 %}disabled{% endif %}>
+            <button id="start-game-btn" class="btn btn-primary" {% if game.player_count() < 2 %}disabled{% endif %} data-i18n="start_game">
                 Start Game
             </button>
         </div>
         {% if game.player_count() < 2 %}
-        <p class="text-muted text-center mt-1">Need at least 2 players to start</p>
+        <p class="text-muted text-center mt-1" data-i18n="need_players">Need at least 2 players to start</p>
         {% endif %}
     </section>
     {% endif %}
@@ -74,19 +74,44 @@
     <!-- Spectator/Non-host waiting message -->
     {% if game.status == 'waiting' and (is_spectator or not player.is_host) %}
     <section class="waiting-message">
-        <p>Waiting for the host to start the game...</p>
+        <p data-i18n="waiting_host">Waiting for the host to start the game...</p>
     </section>
     {% endif %}
     
     <!-- Share Link -->
     <section class="share-section">
-        <h2>Invite Friends</h2>
+        <h2 data-i18n="invite_friends">Invite Friends</h2>
         <div class="share-box">
             <input type="text" id="share-link" value="{{ request.url_root }}game/join?code={{ game.code }}" readonly>
-            <button id="copy-btn" class="btn btn-secondary btn-small">Copy</button>
+            <button id="copy-btn" class="btn btn-secondary btn-small" data-i18n="copy">Copy</button>
         </div>
     </section>
 </main>
+
+<!-- Bot Difficulty Modal -->
+<div id="bot-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+        <h3 data-i18n="select_difficulty">Select Bot Difficulty</h3>
+        <div class="difficulty-options">
+            <button class="difficulty-btn difficulty-easy" onclick="selectBotDifficulty('easy')">
+                <span class="difficulty-icon">🟢</span>
+                <span class="difficulty-name" data-i18n="easy">Easy</span>
+                <span class="difficulty-desc" data-i18n="random_choices">Random choices</span>
+            </button>
+            <button class="difficulty-btn difficulty-medium" onclick="selectBotDifficulty('medium')">
+                <span class="difficulty-icon">🟡</span>
+                <span class="difficulty-name" data-i18n="medium">Medium</span>
+                <span class="difficulty-desc" data-i18n="smart_decisions">Smart decisions</span>
+            </button>
+            <button class="difficulty-btn difficulty-hard" onclick="selectBotDifficulty('hard')">
+                <span class="difficulty-icon">🔴</span>
+                <span class="difficulty-name" data-i18n="hard">Hard</span>
+                <span class="difficulty-desc" data-i18n="card_counting">Card counting</span>
+            </button>
+        </div>
+        <button class="btn btn-secondary" onclick="closeBotModal()" data-i18n="cancel">Cancel</button>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -110,7 +135,7 @@
     // Handle disconnection
     socket.on('disconnect', function() {
         console.log('Disconnected from server');
-        showNotification('Connection lost. Reconnecting...', 'error');
+        showNotification(t('connection_lost'), 'error');
     });
     
     // Handle errors
@@ -128,53 +153,53 @@
     
     // Handle player joined
     socket.on('player_joined', function(data) {
-        showNotification(`${data.player.name} joined the game`);
+        showNotification(data.player.name + ' ' + t('joined_game'));
     });
     
     // Handle player left
     socket.on('player_left', function(data) {
-        showNotification(`${data.player_name} left the game`);
+        showNotification(data.player_name + ' ' + t('left_game'));
     });
     
     // Handle player connected
     socket.on('player_connected', function(data) {
-        showNotification(`${data.player_name} reconnected`);
+        showNotification(data.player_name + ' ' + t('reconnected'));
     });
     
     // Handle player disconnected
     socket.on('player_disconnected', function(data) {
-        showNotification(`${data.player_name} disconnected`);
+        showNotification(data.player_name + ' ' + t('disconnected').toLowerCase());
     });
     
     // Handle game started
     socket.on('game_started', function(data) {
-        showNotification('Game is starting!', 'success');
+        showNotification(t('game_starting'), 'success');
         // Redirect to game view or update UI
-        setTimeout(() => location.reload(), 1000);
+        setTimeout(function() { location.reload(); }, 1000);
     });
     
     // ============ UI Update Functions ============
     
     function updatePlayersUI(players) {
-        const container = document.getElementById('players-list');
-        container.innerHTML = players.map(p => `
-            <div class="player-card ${p.is_host ? 'is-host' : ''} ${p.id === PLAYER_ID ? 'is-you' : ''}">
-                <span class="player-name">
-                    ${escapeHtml(p.name)}
-                    ${p.is_host ? '<span class="host-badge">Host</span>' : ''}
-                    ${p.is_bot ? '<span class="bot-badge">🤖</span>' : ''}
-                    ${p.id === PLAYER_ID ? '<span class="you-badge">(You)</span>' : ''}
-                </span>
-                ${!p.is_connected ? '<span class="disconnected-badge">Disconnected</span>' : ''}
-                ${IS_HOST && p.id !== PLAYER_ID && document.getElementById('host-controls-section') ? 
-                    `<button class="btn btn-small btn-danger" onclick="removePlayer(${p.id})">✕</button>` : ''}
-            </div>
-        `).join('');
+        var container = document.getElementById('players-list');
+        container.innerHTML = players.map(function(p) {
+            return '<div class="player-card ' + (p.is_host ? 'is-host' : '') + ' ' + (p.id === PLAYER_ID ? 'is-you' : '') + '">' +
+                '<span class="player-name">' +
+                    escapeHtml(p.name) +
+                    (p.is_host ? '<span class="host-badge">' + t('host') + '</span>' : '') +
+                    (p.is_bot ? '<span class="bot-badge">🤖</span>' : '') +
+                    (p.id === PLAYER_ID ? '<span class="you-badge">' + t('you') + '</span>' : '') +
+                '</span>' +
+                (!p.is_connected ? '<span class="disconnected-badge">' + t('disconnected') + '</span>' : '') +
+                (IS_HOST && p.id !== PLAYER_ID && document.getElementById('host-controls-section') ? 
+                    '<button class="btn btn-small btn-danger" onclick="removePlayer(' + p.id + ')">✕</button>' : '') +
+            '</div>';
+        }).join('');
         
         // Update player count in header
-        const headerH2 = document.querySelector('.players-section h2');
+        var headerH2 = document.querySelector('.players-section h2');
         if (headerH2) {
-            headerH2.textContent = `Players (${players.length}/{{ game.max_players }})`;
+            headerH2.innerHTML = '<span data-i18n="players_count">' + t('players_count') + '</span> (' + players.length + '/{{ game.max_players }})';
         }
     }
     
@@ -228,13 +253,19 @@
     // ============ Action Functions ============
     
     function addBot() {
-        const difficulty = prompt('Bot difficulty (easy, medium, hard):', 'medium');
-        if (difficulty) {
-            socket.emit('add_bot', { 
-                code: GAME_CODE, 
-                difficulty: difficulty.toLowerCase() 
-            });
-        }
+        document.getElementById('bot-modal').style.display = 'flex';
+    }
+    
+    function closeBotModal() {
+        document.getElementById('bot-modal').style.display = 'none';
+    }
+    
+    function selectBotDifficulty(difficulty) {
+        socket.emit('add_bot', { 
+            code: GAME_CODE, 
+            difficulty: difficulty 
+        });
+        closeBotModal();
     }
     
     function removePlayer(playerId) {
@@ -266,11 +297,12 @@
     
     // Copy share link
     document.getElementById('copy-btn').addEventListener('click', function() {
-        const input = document.getElementById('share-link');
+        var input = document.getElementById('share-link');
+        var btn = this;
         input.select();
         document.execCommand('copy');
-        this.textContent = 'Copied!';
-        setTimeout(() => this.textContent = 'Copy', 2000);
+        btn.textContent = t('copied');
+        setTimeout(function() { btn.textContent = t('copy'); }, 2000);
     });
 </script>
 {% endblock %}

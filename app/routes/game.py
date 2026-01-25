@@ -130,6 +130,13 @@ def room(code):
     # If not a player, they're a spectator
     is_spectator = player is None
     
+    # Use different template based on game status
+    if game.status == 'playing':
+        return render_template('game/playing.html', 
+                             game=game,
+                             player=player, 
+                             is_spectator=is_spectator)
+    
     return render_template('game/room.html', 
                          game=game, 
                          player=player, 

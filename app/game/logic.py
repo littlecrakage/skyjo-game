@@ -4,6 +4,7 @@ Skyjo game logic - deck creation, dealing, scoring, etc.
 import random
 from datetime import datetime
 from app import db
+from app.models.game import Player
 
 
 # Skyjo deck composition:
@@ -52,12 +53,13 @@ def initialize_game(game):
     - Each player reveals 2 cards initially
     - Put one card in discard pile
     - Set game status to 'playing'
+    - Player with highest revealed total starts
     """
     # Create and shuffle deck
     deck = shuffle_deck(create_deck())
     
     # Deal cards to each player
-    players = list(game.players.order_by('turn_order').all())
+    players = list(game.players.order_by(Player.turn_order).all())
     
     for player in players:
         # Deal 12 cards (all face down initially)
@@ -72,6 +74,10 @@ def initialize_game(game):
         player.held_card = None
         player.round_score = 0
         player.triggered_end = False
+        
+        # Bots automatically reveal 2 random cards
+        if player.is_bot:
+            reveal_random_initial_cards(player)
     
     # Put top card in discard pile
     discard_card = deck.pop()
@@ -82,12 +88,54 @@ def initialize_game(game):
     
     # Update game status
     game.status = 'playing'
-    game.current_player_index = 0
     game.started_at = datetime.utcnow()
+    
+    # Determine starting player (highest revealed card total)
+    # For now, set to 0 - will be updated when all humans reveal their cards
+    # Bots have already revealed, so if all players are bots or have revealed, set it now
+    game.current_player_index = determine_starting_player(game)
     
     db.session.commit()
     
     return game
+
+
+def determine_starting_player(game):
+    """
+    Determine which player starts based on highest revealed card total.
+    Returns the turn_order index of the starting player.
+    """
+    players = list(game.players.order_by(Player.turn_order).all())
+    
+    highest_total = -100  # Cards can be negative
+    starting_index = 0
+    
+    for i, player in enumerate(players):
+        # Calculate sum of revealed cards
+        cards = player.get_cards()
+        revealed_total = sum(c['value'] for c in cards if c.get('revealed', False))
+        revealed_count = sum(1 for c in cards if c.get('revealed', False))
+        
+        # Only consider players who have revealed their 2 cards
+        if revealed_count >= 2:
+            if revealed_total > highest_total:
+                highest_total = revealed_total
+                starting_index = i
+    
+    return starting_index
+
+
+def reveal_random_initial_cards(player):
+    """Reveal 2 random cards for a bot player."""
+    import random
+    cards = player.get_cards()
+    
+    # Pick 2 random indices to reveal
+    indices = random.sample(range(len(cards)), 2)
+    for idx in indices:
+        cards[idx]['revealed'] = True
+    
+    player.set_cards(cards)
 
 
 def reveal_initial_cards(game, player, card_indices):
@@ -219,46 +267,68 @@ def reveal_card(game, player, card_index):
 def check_column_elimination(game, player):
     """
     Check if any column has 3 identical revealed cards.
-    If so, remove the column (move cards to discard).
+    If so, mark those cards as eliminated (they don't count in score).
+    
+    Grid layout (4 columns x 3 rows):
+    0  1  2  3
+    4  5  6  7
+    8  9  10 11
+    
+    Column 0: indices 0, 4, 8
+    Column 1: indices 1, 5, 9
+    Column 2: indices 2, 6, 10
+    Column 3: indices 3, 7, 11
     """
     cards = player.get_cards()
     
-    # Cards are in a 4x3 grid (4 columns, 3 rows)
-    # Indices: 0,1,2 (col 0), 3,4,5 (col 1), 6,7,8 (col 2), 9,10,11 (col 3)
-    
-    columns_to_remove = []
+    columns_eliminated = []
     
     for col in range(4):
-        col_indices = [col * 3, col * 3 + 1, col * 3 + 2]
+        # Column indices: col, col+4, col+8
+        col_indices = [col, col + 4, col + 8]
+        
+        # Skip if any index is out of range
+        if any(i >= len(cards) for i in col_indices):
+            continue
+        
+        # Skip if any card in this column is already eliminated
+        if any(cards[i].get('eliminated', False) for i in col_indices):
+            continue
+        
         col_cards = [cards[i] for i in col_indices]
         
-        # Check if all revealed and same value
-        if all(c['revealed'] for c in col_cards):
-            values = [c['value'] for c in col_cards]
-            if values[0] == values[1] == values[2]:
-                columns_to_remove.append(col)
-    
-    if columns_to_remove:
-        # Remove columns (in reverse order to maintain indices)
-        discard = game.get_discard_pile()
+        # Check if all 3 cards are revealed
+        if not all(c.get('revealed', False) for c in col_cards):
+            continue
         
-        for col in sorted(columns_to_remove, reverse=True):
-            col_indices = [col * 3, col * 3 + 1, col * 3 + 2]
-            for i in sorted(col_indices, reverse=True):
+        # Check if all same value
+        values = [c['value'] for c in col_cards]
+        if values[0] == values[1] == values[2]:
+            # Mark cards as eliminated
+            for i in col_indices:
+                cards[i]['eliminated'] = True
+            columns_eliminated.append(col)
+            
+            # Add cards to discard pile
+            discard = game.get_discard_pile()
+            for i in col_indices:
                 discard.append(cards[i]['value'])
-                cards.pop(i)
-        
-        game.set_discard_pile(discard)
+            game.set_discard_pile(discard)
+    
+    if columns_eliminated:
         player.set_cards(cards)
         db.session.commit()
     
-    return len(columns_to_remove) > 0
+    return len(columns_eliminated) > 0
 
 
 def calculate_player_score(player):
-    """Calculate the score for a player's current cards."""
+    """Calculate the score for a player's current cards (excluding eliminated)."""
     cards = player.get_cards()
-    return sum(card['value'] for card in cards)
+    return sum(
+        card['value'] for card in cards 
+        if card.get('revealed', False) and not card.get('eliminated', False)
+    )
 
 
 def check_round_end(game, player):
@@ -282,15 +352,23 @@ def end_round(game):
     # Find who triggered the end
     trigger_player = next((p for p in players if p.triggered_end), None)
     
-    # Calculate scores for all players (reveal all remaining cards)
+    # Calculate scores for all players (reveal all remaining cards first)
     for player in players:
         cards = player.get_cards()
-        # Reveal all cards
+        # Reveal all non-eliminated cards
         for card in cards:
-            card['revealed'] = True
+            if not card.get('eliminated', False):
+                card['revealed'] = True
         player.set_cards(cards)
         
-        # Calculate round score
+        # Check for any new column eliminations after revealing all
+        check_column_elimination(game, player)
+    
+    db.session.commit()
+    
+    # Now calculate final scores (after all eliminations)
+    for player in players:
+        # Calculate round score (only non-eliminated cards)
         round_score = calculate_player_score(player)
         
         # Penalty: if trigger player doesn't have lowest score, double their score
@@ -307,7 +385,7 @@ def end_round(game):
 
 def next_turn(game):
     """Move to the next player's turn."""
-    players = list(game.players.order_by('turn_order').all())
+    players = list(game.players.order_by(Player.turn_order).all())
     game.current_player_index = (game.current_player_index + 1) % len(players)
     db.session.commit()
     return game.get_current_player()

@@ -4,8 +4,8 @@
 
 {% block content %}
 <header>
-    <a href="{{ url_for('main.index') }}" class="back-link">← Back</a>
-    <h1>Join Game</h1>
+    <a href="{{ url_for('main.index') }}" class="back-link" data-i18n="back">← Back</a>
+    <h1 data-i18n="join_title">Join Game</h1>
 </header>
 
 <main>
@@ -17,9 +17,10 @@
     
     <form method="POST" class="form-card">
         <div class="form-group">
-            <label for="code">Game Code</label>
+            <label for="code" data-i18n="game_code">Game Code</label>
             <input type="text" id="code" name="code" 
                    placeholder="Enter 6-character code" 
+                   data-i18n="enter_code"
                    maxlength="6" 
                    value="{{ code }}"
                    style="text-transform: uppercase;"
@@ -27,19 +28,19 @@
         </div>
         
         <div class="form-group">
-            <label for="player_name">Your Name</label>
+            <label for="player_name" data-i18n="your_name">Your Name</label>
             <input type="text" id="player_name" name="player_name" 
-                   placeholder="Enter your name" maxlength="50" required>
+                   placeholder="Enter your name" data-i18n="enter_name" maxlength="50" required>
         </div>
         
-        <button type="submit" class="btn btn-primary btn-full">Join Game</button>
+        <button type="submit" class="btn btn-primary btn-full" data-i18n="join_btn">Join Game</button>
     </form>
     
     <div class="divider">
-        <span>or</span>
+        <span data-i18n="or">or</span>
     </div>
     
-    <a href="{{ url_for('game.lobbies') }}" class="btn btn-secondary btn-full">
+    <a href="{{ url_for('game.lobbies') }}" class="btn btn-secondary btn-full" data-i18n="browse_public">
         Browse Public Games
     </a>
 </main>
