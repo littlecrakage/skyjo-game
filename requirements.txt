@@ -1,0 +1,18 @@
+# Flask and extensions
+Flask>=3.0
+Flask-SocketIO>=5.3
+Flask-SQLAlchemy>=3.1
+
+# WebSocket support
+python-socketio>=5.10
+python-engineio>=4.8
+eventlet>=0.34
+
+# Database
+SQLAlchemy>=2.0
+
+# For production (PostgreSQL) - psycopg v3
+psycopg[binary]>=3.0
+
+# Utilities
+python-dotenv>=1.0
