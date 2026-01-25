@@ -21,7 +21,15 @@ def create_app(config_name='default'):
     
     # Register blueprints
     from app.routes.main import main_bp
+    from app.routes.game import game_bp
     app.register_blueprint(main_bp)
+    app.register_blueprint(game_bp)
+    
+    # Import socket events to register them
+    from app.routes import socket_events  # noqa
+    
+    # Import models so they are registered with SQLAlchemy
+    from app.models import Game, Player
     
     # Create database tables
     with app.app_context():

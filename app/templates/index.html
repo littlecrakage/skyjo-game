@@ -10,9 +10,9 @@
 
 <main>
     <div class="menu">
-        <a href="#" class="btn btn-primary">Create Game</a>
-        <a href="#" class="btn btn-secondary">Join Game</a>
-        <a href="#" class="btn btn-secondary">Public Lobbies</a>
+        <a href="{{ url_for('game.create') }}" class="btn btn-primary">Create Game</a>
+        <a href="{{ url_for('game.join') }}" class="btn btn-secondary">Join Game</a>
+        <a href="{{ url_for('game.lobbies') }}" class="btn btn-secondary">Public Lobbies</a>
     </div>
 </main>
 

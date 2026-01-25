@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Public Lobbies - Skyjo{% endblock %}
+
+{% block content %}
+<header>
+    <a href="{{ url_for('main.index') }}" class="back-link">← Back</a>
+    <h1>Public Lobbies</h1>
+</header>
+
+<main>
+    <div id="lobbies-container">
+        <div class="loading">Loading games...</div>
+    </div>
+    
+    <div class="mt-3">
+        <a href="{{ url_for('game.create') }}" class="btn btn-primary btn-full">
+            Create New Game
+        </a>
+    </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function loadLobbies() {
+        const container = document.getElementById('lobbies-container');
+        
+        try {
+            const response = await fetch('/game/api/lobbies');
+            const data = await response.json();
+            
+            if (data.games.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <p>No public games available</p>
+                        <p class="text-muted">Create one or check back later!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = data.games.map(game => `
+                <div class="lobby-card">
+                    <div class="lobby-info">
+                        <div class="lobby-code">${game.code}</div>
+                        <div class="lobby-details">
+                            <span>${game.player_count}/${game.max_players} players</span>
+                            <span>•</span>
+                            <span>${game.turn_timer > 0 ? game.turn_timer + 's turns' : 'No timer'}</span>
+                        </div>
+                    </div>
+                    <a href="/game/join?code=${game.code}" class="btn btn-secondary btn-small">
+                        Join
+                    </a>
+                </div>
+            `).join('');
+            
+        } catch (error) {
+            container.innerHTML = `
+                <div class="alert alert-error">
+                    Failed to load lobbies. Please try again.
+                </div>
+            `;
+        }
+    }
+    
+    // Load immediately and refresh every 5 seconds
+    loadLobbies();
+    setInterval(loadLobbies, 5000);
+</script>
+{% endblock %}

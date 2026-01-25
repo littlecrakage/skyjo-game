@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% block title %}Join Game - Skyjo{% endblock %}
+
+{% block content %}
+<header>
+    <a href="{{ url_for('main.index') }}" class="back-link">← Back</a>
+    <h1>Join Game</h1>
+</header>
+
+<main>
+    {% if error %}
+    <div class="alert alert-error">
+        {{ error }}
+    </div>
+    {% endif %}
+    
+    <form method="POST" class="form-card">
+        <div class="form-group">
+            <label for="code">Game Code</label>
+            <input type="text" id="code" name="code" 
+                   placeholder="Enter 6-character code" 
+                   maxlength="6" 
+                   value="{{ code }}"
+                   style="text-transform: uppercase;"
+                   required>
+        </div>
+        
+        <div class="form-group">
+            <label for="player_name">Your Name</label>
+            <input type="text" id="player_name" name="player_name" 
+                   placeholder="Enter your name" maxlength="50" required>
+        </div>
+        
+        <button type="submit" class="btn btn-primary btn-full">Join Game</button>
+    </form>
+    
+    <div class="divider">
+        <span>or</span>
+    </div>
+    
+    <a href="{{ url_for('game.lobbies') }}" class="btn btn-secondary btn-full">
+        Browse Public Games
+    </a>
+</main>
+{% endblock %}

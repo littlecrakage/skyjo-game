@@ -1,2 +1,2 @@
 # Models package
-# Models will be added here as we build them
+from app.models.game import Game, Player
