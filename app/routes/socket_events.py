@@ -312,13 +312,14 @@ def handle_draw_card(data):
     # Draw the card
     from app.game.logic import draw_card
     try:
-        # If drawing from discard, get the value before popping
         if from_discard:
             discard_pile = game.get_discard_pile()
             card_value = discard_pile[-1] if discard_pile else None
             draw_card(game, player, from_discard)
         else:
-            card_value = draw_card(game, player, from_discard)
+            draw_card(game, player, from_discard)
+            # After drawing from draw pile, get the held card value
+            card_value = player.held_card
     except ValueError as e:
         emit('error', {'message': str(e)})
         return
@@ -828,10 +829,11 @@ def process_bot_turn(game, bot):
         print(f"Bot draw error: {e}")
         return
     
+    # Always emit the card value for log clarity
     emit('card_drawn', {
         'player_id': bot.id,
         'player_name': bot.name,
-        'card_value': None,  # Don't show bot's card
+        'card_value': card_value,
         'from_discard': take_from_discard
     }, room=code, namespace='/')
     
