@@ -101,6 +101,16 @@ var TRANSLATIONS = {
         reconnected: "reconnected",
         connection_lost: "Connection lost. Reconnecting...",
         game_starting: "Game is starting!",
+        timed_out: "timed out - auto action!",
+        
+        // Game Log
+        game_log: "Game Log",
+        drew_from: "drew from",
+        placed_card: "placed a card",
+        revealed_card: "revealed a card",
+        discarded_card: "discarded",
+        eliminated_column: "eliminated a column!",
+        turn_of: "Turn:",
         
         // Scores
         round_score: "Round",
@@ -208,6 +218,16 @@ var TRANSLATIONS = {
         reconnected: "s'est reconnecté",
         connection_lost: "Connexion perdue. Reconnexion...",
         game_starting: "La partie commence !",
+        timed_out: "temps écoulé - action auto !",
+        
+        // Game Log
+        game_log: "Journal de jeu",
+        drew_from: "a pioché de",
+        placed_card: "a placé une carte",
+        revealed_card: "a révélé une carte",
+        discarded_card: "a défaussé",
+        eliminated_column: "a éliminé une colonne !",
+        turn_of: "Tour de",
         
         // Scores
         round_score: "Manche",

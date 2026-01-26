@@ -7,12 +7,24 @@
 {% endblock %}
 
 {% block content %}
-<div class="game-container">
-    <!-- Game Header -->
-    <header class="game-header">
-        <div class="game-info">
-            <span class="game-code">{{ game.code }}</span>
-            <span class="round-info"><span data-i18n="round">Round</span> {{ game.round_number }}</span>
+<div class="game-wrapper">
+    <!-- Game Log Panel -->
+    <div id="game-log" class="game-log">
+        <div class="game-log-header">
+            <span data-i18n="game_log">Game Log</span>
+            <button id="toggle-log" class="btn-toggle-log">−</button>
+        </div>
+        <div id="game-log-content" class="game-log-content">
+            <!-- Log entries will be added here -->
+        </div>
+    </div>
+
+    <div class="game-container">
+        <!-- Game Header -->
+        <header class="game-header">
+            <div class="game-info">
+                <span class="game-code">{{ game.code }}</span>
+                <span class="round-info"><span data-i18n="round">Round</span> {{ game.round_number }}</span>
         </div>
         <div id="turn-indicator" class="turn-indicator">
             <!-- Updated via JS -->
@@ -89,6 +101,7 @@
         </div>
     </div>
 </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -126,21 +139,51 @@
     
     // Game state update
     socket.on('game_state', function(game) {
-        console.log('Game state received:', game);
-        console.log('PLAYER_ID:', PLAYER_ID);
+        console.log('=== GAME_STATE EVENT ===');
+        console.log('current_player_id:', game.current_player_id, 'PLAYER_ID:', PLAYER_ID);
+        console.log('game.status:', game.status, 'IS_SPECTATOR:', IS_SPECTATOR);
+        
+        var wasMyTurn = isMyTurn;
         gameState = game;
         myPlayer = null;
         if (game.players) {
             for (var i = 0; i < game.players.length; i++) {
-                console.log('Player ' + i + ':', game.players[i].id, game.players[i].name);
                 if (game.players[i].id === PLAYER_ID) {
                     myPlayer = game.players[i];
                     break;
                 }
             }
         }
-        console.log('myPlayer found:', myPlayer);
+        
+        console.log('myPlayer:', myPlayer ? 'found' : 'not found');
+        console.log('revealed_count:', myPlayer ? myPlayer.revealed_count : 'N/A');
+        
         updateUI();
+        
+        // Robust timer logic: always start timer on your turn or during initial reveal
+        var nowMyTurn = (game.current_player_id === PLAYER_ID && game.status === 'playing' && !IS_SPECTATOR);
+        var initialRevealDone = myPlayer && myPlayer.revealed_count >= 2;
+        var needsInitialReveal = myPlayer && myPlayer.revealed_count < 2 && game.status === 'playing' && !IS_SPECTATOR;
+
+        // Always stop timer first to prevent overlap
+        stopTimer();
+
+        if (needsInitialReveal) {
+            // During initial reveal phase - timer for everyone who hasn't revealed
+            console.log('>>> Starting timer (initial reveal phase)');
+            startTimer();
+        } else if (nowMyTurn && initialRevealDone) {
+            if (!wasMyTurn) {
+                // It just became our turn
+                turnPhase = 'draw';
+            }
+            console.log('>>> Starting timer (our turn)');
+            startTimer();
+        } else {
+            // Not my turn or not in reveal phase
+            console.log('>>> Stopping timer (not my turn or not reveal phase)');
+            stopTimer();
+        }
     });
     
     // Card drawn
@@ -149,41 +192,61 @@
             turnPhase = 'place_or_discard';
             showHeldCard(data.card_value);
         }
-        showNotification(data.player_name + ' drew a card');
+        var source = data.from_discard ? t('discard') : t('draw');
+        var cardDisplay = data.card_value !== null ? ' [' + data.card_value + ']' : '';
+        addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('drew_from') + ' ' + source + cardDisplay, 'action');
     });
     
     // Card placed
     socket.on('card_placed', function(data) {
-        showNotification(data.player_name + ' placed a card');
+        var placedVal = data.placed_value !== undefined ? ' [' + data.placed_value + ']' : '';
+        var discardedVal = data.discarded_value !== undefined ? ' → ' + t('discard') + ' [' + data.discarded_value + ']' : '';
+        addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('placed_card') + placedVal + discardedVal, 'action');
     });
     
     // Card revealed
     socket.on('card_revealed', function(data) {
-        showNotification(data.player_name + ' revealed a card');
+        var revealedVal = data.revealed_value !== undefined ? ' [' + data.revealed_value + ']' : '';
+        addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('revealed_card') + revealedVal, 'action');
+    });
+    
+    // Card discarded (when player discards held card to reveal instead)
+    socket.on('card_discarded', function(data) {
+        var discardedVal = data.discarded_value !== undefined ? ' [' + data.discarded_value + ']' : '';
+        addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('discarded_card') + discardedVal, 'action');
     });
     
     // Column eliminated
     socket.on('column_eliminated', function(data) {
-        showNotification(data.player_name + ' eliminated a column!', 'success');
+        addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('eliminated_column') + ' 🎉', 'success');
+    });
+    
+    // Player timeout
+    socket.on('player_timeout', function(data) {
+        addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('timed_out') + ' ⏱️', 'timeout');
+        // Don't call stopTimer() here - timer is managed by game_state handler
     });
     
     // Turn changed
     socket.on('turn_changed', function(data) {
         updateTurnIndicator(data.current_player_id, data.current_player_name);
+        addLogEntry('➡️ ' + t('turn_of') + ' <strong>' + escapeHtml(data.current_player_name) + '</strong>', 'turn');
         if (data.current_player_id === PLAYER_ID) {
             turnPhase = 'draw';
             showNotification(t('your_turn'), 'success');
-            startTimer();
+            // Timer will be started by game_state handler
         }
     });
     
     // Round ended
     socket.on('round_ended', function(data) {
+        addLogEntry('🏁 ' + t('round_over'), 'round');
         showRoundEnd(data.scores, data.trigger_player);
     });
     
     // Game ended
     socket.on('game_ended', function(data) {
+        addLogEntry('🏆 ' + t('game_over') + ' - ' + t('winner') + ': <strong>' + escapeHtml(data.winner) + '</strong>', 'winner');
         showGameEnd(data.winner, data.final_scores);
     });
     
@@ -202,9 +265,6 @@
             console.log('No gameState yet');
             return;
         }
-        console.log('Updating UI with gameState:', gameState);
-        console.log('Players count:', gameState.players ? gameState.players.length : 0);
-        console.log('myPlayer:', myPlayer);
         
         try {
             updatePhase();
@@ -212,6 +272,9 @@
             updateMyCards();
             updatePiles();
             updateTurnIndicator();
+            
+            // Update isMyTurn flag
+            isMyTurn = (gameState.current_player_id === PLAYER_ID && gamePhase === 'playing' && !IS_SPECTATOR);
         } catch (e) {
             console.error('Error in updateUI:', e);
         }
@@ -459,16 +522,29 @@
     }
     
     function startTimer() {
-        if (TURN_TIMER <= 0) return;
+        console.log('startTimer() called, TURN_TIMER:', TURN_TIMER);
+        if (TURN_TIMER <= 0) {
+            console.log('Timer disabled (TURN_TIMER <= 0)');
+            return;
+        }
+        
+        // Always stop any existing timer first
+        clearInterval(timerInterval);
         
         var timerDiv = document.getElementById('timer');
         var timerValue = document.getElementById('timer-value');
         var remaining = TURN_TIMER;
         
+        console.log('Timer div found:', timerDiv ? 'yes' : 'no');
+        console.log('Setting timer display to block');
+        
         timerDiv.style.display = 'block';
+        timerDiv.classList.remove('timer-warning');
         timerValue.textContent = remaining;
         
-        clearInterval(timerInterval);
+        console.log('Timer display style:', timerDiv.style.display);
+        console.log('Timer starting with', remaining, 'seconds');
+        
         timerInterval = setInterval(function() {
             remaining--;
             timerValue.textContent = remaining;
@@ -479,12 +555,19 @@
             
             if (remaining <= 0) {
                 clearInterval(timerInterval);
+                console.log('Timer reached 0, emitting turn_timeout');
+                // Auto-action on timeout
+                socket.emit('turn_timeout', { code: GAME_CODE });
             }
         }, 1000);
+        
+        console.log('Timer interval set:', timerInterval);
     }
     
     function stopTimer() {
+        console.log('stopTimer() called, current timerInterval:', timerInterval);
         clearInterval(timerInterval);
+        timerInterval = null;
         document.getElementById('timer').style.display = 'none';
         document.getElementById('timer').classList.remove('timer-warning');
     }
@@ -584,6 +667,37 @@
     });
     
     // ============ Utilities ============
+    
+    function addLogEntry(message, type) {
+        type = type || 'info';
+        var logContent = document.getElementById('game-log-content');
+        var entry = document.createElement('div');
+        entry.className = 'log-entry log-' + type;
+        
+        var time = new Date();
+        var timeStr = time.getHours().toString().padStart(2, '0') + ':' + 
+                      time.getMinutes().toString().padStart(2, '0') + ':' + 
+                      time.getSeconds().toString().padStart(2, '0');
+        
+        entry.innerHTML = '<span class="log-time">' + timeStr + '</span> ' + message;
+        logContent.appendChild(entry);
+        
+        // Auto-scroll to bottom
+        logContent.scrollTop = logContent.scrollHeight;
+    }
+    
+    // Toggle log panel
+    document.getElementById('toggle-log').addEventListener('click', function() {
+        var logContent = document.getElementById('game-log-content');
+        var btn = this;
+        if (logContent.style.display === 'none') {
+            logContent.style.display = 'block';
+            btn.textContent = '−';
+        } else {
+            logContent.style.display = 'none';
+            btn.textContent = '+';
+        }
+    });
     
     function showNotification(message, type) {
         type = type || 'info';

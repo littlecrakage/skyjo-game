@@ -243,11 +243,17 @@ def handle_reveal_initial(data):
         return
     
     # Reveal the card
+    revealed_value = cards[card_index]['value']
     cards[card_index]['revealed'] = True
     player.set_cards(cards)
     db.session.commit()
     
-    # Broadcast update
+    # Broadcast update with revealed value
+    emit('card_revealed', {
+        'player_id': player.id,
+        'player_name': player.name,
+        'revealed_value': revealed_value
+    }, room=code)
     emit('game_state', game.to_dict(include_players=True), room=code)
     
     # Check if all players have revealed 2 cards
@@ -306,7 +312,13 @@ def handle_draw_card(data):
     # Draw the card
     from app.game.logic import draw_card
     try:
-        card_value = draw_card(game, player, from_discard)
+        # If drawing from discard, get the value before popping
+        if from_discard:
+            discard_pile = game.get_discard_pile()
+            card_value = discard_pile[-1] if discard_pile else None
+            draw_card(game, player, from_discard)
+        else:
+            card_value = draw_card(game, player, from_discard)
     except ValueError as e:
         emit('error', {'message': str(e)})
         return
@@ -346,6 +358,11 @@ def handle_place_card(data):
         emit('error', {'message': "Not your turn"})
         return
     
+    # Get the card values before placing
+    cards = player.get_cards()
+    old_card_value = cards[card_index]['value']
+    placed_card_value = player.held_card
+    
     # Place the card
     from app.game.logic import place_card, check_round_end, next_turn
     try:
@@ -356,7 +373,9 @@ def handle_place_card(data):
     
     emit('card_placed', {
         'player_id': player.id,
-        'player_name': player.name
+        'player_name': player.name,
+        'placed_value': placed_card_value,
+        'discarded_value': old_card_value
     }, room=code)
     
     # Check if round should end
@@ -399,12 +418,22 @@ def handle_discard_held(data):
         emit('error', {'message': "Not your turn"})
         return
     
+    # Get the card value before discarding
+    discarded_value = player.held_card
+    
     from app.game.logic import discard_held_card
     try:
         discard_held_card(game, player)
     except ValueError as e:
         emit('error', {'message': str(e)})
         return
+    
+    # Emit discard event with value
+    emit('card_discarded', {
+        'player_id': player.id,
+        'player_name': player.name,
+        'discarded_value': discarded_value
+    }, room=code)
     
     # Player now needs to reveal a card - don't end turn yet
     emit('game_state', game.to_dict(include_players=True), room=code)
@@ -434,6 +463,11 @@ def handle_reveal_card(data):
         return
     
     from app.game.logic import reveal_card, check_round_end, next_turn
+    
+    # Get the card value before revealing
+    cards = player.get_cards()
+    revealed_value = cards[card_index]['value']
+    
     try:
         reveal_card(game, player, card_index)
     except ValueError as e:
@@ -442,7 +476,8 @@ def handle_reveal_card(data):
     
     emit('card_revealed', {
         'player_id': player.id,
-        'player_name': player.name
+        'player_name': player.name,
+        'revealed_value': revealed_value
     }, room=code)
     
     # Check if round should end
@@ -516,6 +551,143 @@ def handle_next_round(data):
     from app.game.logic import initialize_game
     game.round_number += 1
     initialize_game(game)
+    
+    emit('game_state', game.to_dict(include_players=True), room=code)
+
+
+@socketio.on('turn_timeout')
+def handle_turn_timeout(data):
+    """Handle player turn timeout - auto-action."""
+    code = data.get('code', '').upper()
+    session_id = get_session_id()
+    
+    game = Game.query.filter_by(code=code).first()
+    if not game or game.status != 'playing':
+        return
+    
+    player = game.players.filter_by(session_id=session_id).first()
+    if not player:
+        return
+    
+    import random
+    from app.game.logic import draw_card, place_card, discard_held_card, reveal_card, check_round_end, next_turn
+    
+    cards = player.get_cards()
+    unrevealed = [(i, c) for i, c in enumerate(cards) if not c.get('revealed') and not c.get('eliminated')]
+    
+    # Check if player is still in initial reveal phase (needs to reveal 2 cards)
+    # This happens for ALL players simultaneously, so no turn check needed
+    revealed_count = sum(1 for c in cards if c.get('revealed') and not c.get('eliminated'))
+    if revealed_count < 2:
+        # Auto-reveal random cards to complete initial reveal
+        cards_to_reveal = 2 - revealed_count
+        for _ in range(cards_to_reveal):
+            if unrevealed:
+                target_idx = random.choice(unrevealed)[0]
+                reveal_card(game, player, target_idx)
+                unrevealed = [(i, c) for i, c in enumerate(player.get_cards()) if not c.get('revealed') and not c.get('eliminated')]
+                emit('card_revealed', {
+                    'player_id': player.id,
+                    'player_name': player.name + ' (timeout)',
+                    'card_index': target_idx
+                }, room=code)
+        
+        emit('game_state', game.to_dict(include_players=True), room=code)
+        emit('player_timeout', {'player_name': player.name}, room=code)
+        
+        # Check if all players have revealed 2 cards
+        all_ready = all(p.revealed_count() >= 2 for p in game.players.all())
+        if all_ready:
+            # Determine starting player based on highest revealed total
+            from app.game.logic import determine_starting_player
+            game.current_player_index = determine_starting_player(game)
+            db.session.commit()
+            
+            emit('initial_reveal_complete', {'all_ready': True}, room=code)
+            
+            # Notify who starts
+            current = game.get_current_player()
+            emit('turn_changed', {
+                'current_player_id': current.id,
+                'current_player_name': current.name
+            }, room=code)
+            
+            emit('game_state', game.to_dict(include_players=True), room=code)
+            
+            # If starting player is a bot, process their turn
+            if current.is_bot:
+                process_bot_turn(game, current)
+        return
+    
+    # For normal gameplay, verify it's actually this player's turn
+    current = game.get_current_player()
+    if not current or current.id != player.id:
+        return
+    
+    # If player has a held card, place it on random unrevealed card
+    if player.held_card is not None:
+        if unrevealed:
+            target_idx = random.choice(unrevealed)[0]
+            # Get values for logging
+            old_card_value = cards[target_idx]['value']
+            placed_card_value = player.held_card
+            
+            place_card(game, player, target_idx)
+            emit('card_placed', {
+                'player_id': player.id,
+                'player_name': player.name + ' (timeout)',
+                'placed_value': placed_card_value,
+                'discarded_value': old_card_value
+            }, room=code)
+        else:
+            # All cards revealed, discard and reveal (reveal random already revealed - no effect)
+            discard_held_card(game, player)
+    else:
+        # No held card - draw from deck and place on random unrevealed
+        draw_card(game, player, from_discard=False)
+        
+        # Refresh cards and unrevealed after draw
+        cards = player.get_cards()
+        unrevealed = [(i, c) for i, c in enumerate(cards) if not c.get('revealed') and not c.get('eliminated')]
+        
+        if unrevealed:
+            target_idx = random.choice(unrevealed)[0]
+            # Get values for logging
+            old_card_value = cards[target_idx]['value']
+            placed_card_value = player.held_card
+            
+            place_card(game, player, target_idx)
+            emit('card_placed', {
+                'player_id': player.id,
+                'player_name': player.name + ' (timeout)',
+                'placed_value': placed_card_value,
+                'discarded_value': old_card_value
+            }, room=code)
+        else:
+            # All revealed - discard and reveal (shouldn't happen often)
+            discard_held_card(game, player)
+            revealed_idx = random.choice([i for i, c in enumerate(cards) if c.get('revealed') and not c.get('eliminated')])
+            reveal_card(game, player, revealed_idx)
+    
+    emit('game_state', game.to_dict(include_players=True), room=code)
+    
+    # Show timeout notification to all
+    emit('player_timeout', {
+        'player_name': player.name
+    }, room=code)
+    
+    # Check round end
+    if check_round_end(game, player):
+        handle_round_end(game, code)
+    else:
+        next_player = next_turn(game)
+        emit('turn_changed', {
+            'current_player_id': next_player.id,
+            'current_player_name': next_player.name
+        }, room=code)
+        
+        if next_player.is_bot:
+            process_bot_turn(game, next_player)
     
     emit('game_state', game.to_dict(include_players=True), room=code)
 
@@ -827,14 +999,30 @@ def process_bot_turn(game, bot):
     
     # Execute decision
     if should_place and place_index is not None:
+        # Get values before placing for logging
+        old_card_value = cards[place_index]['value']
+        placed_card_value = bot.held_card
+        
         place_card(game, bot, place_index)
         emit('card_placed', {
             'player_id': bot.id,
-            'player_name': bot.name
+            'player_name': bot.name,
+            'placed_value': placed_card_value,
+            'discarded_value': old_card_value
         }, room=code, namespace='/')
     else:
+        # Get discarded value for logging
+        discarded_value = bot.held_card
+        
         # Discard and reveal
         discard_held_card(game, bot)
+        
+        # Emit discard event
+        emit('card_discarded', {
+            'player_id': bot.id,
+            'player_name': bot.name,
+            'discarded_value': discarded_value
+        }, room=code, namespace='/')
         
         # Choose which card to reveal
         reveal_index = None
@@ -876,10 +1064,15 @@ def process_bot_turn(game, bot):
                 reveal_index = random.choice(unrevealed_indices)
         
         if reveal_index is not None:
+            # Get revealed value for logging
+            updated_cards = bot.get_cards()
+            revealed_value = updated_cards[reveal_index]['value']
+            
             reveal_card(game, bot, reveal_index)
             emit('card_revealed', {
                 'player_id': bot.id,
-                'player_name': bot.name
+                'player_name': bot.name,
+                'revealed_value': revealed_value
             }, room=code, namespace='/')
     
     emit('game_state', game.to_dict(include_players=True), room=code, namespace='/')
