@@ -347,6 +347,7 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('turn_changed', function(data) {
         updateTurnIndicator(data.current_player_id, data.current_player_name);
         addLogEntry('➡️ ' + t('turn_of') + ' <strong>' + escapeHtml(data.current_player_name) + '</strong>', 'turn');
+        startTimer();
         if (data.current_player_id === PLAYER_ID) {
             turnPhase = 'draw';
             showNotification(t('your_turn'), 'success');
@@ -355,6 +356,14 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('round_ended', function(data) {
         addLogEntry('🏁 ' + t('round_over'), 'round');
         showRoundEnd(data.scores, data.trigger_player);
+    });
+    socket.on('round_started', function(data) {
+        // Hide round end overlay and reset to initial reveal phase
+        document.getElementById('round-end-overlay').style.display = 'none';
+        gamePhase = 'initial_reveal';
+        turnPhase = 'reveal';
+        showPhaseOverlay(t('reveal_2_cards'), t('reveal_2_cards_desc'));
+        addLogEntry('🆕 ' + t('round') + ' ' + data.round_number + ' ' + t('started'), 'round');
     });
     socket.on('game_ended', function(data) {
         addLogEntry('🏆 ' + t('game_over') + ' - ' + t('winner') + ': <strong>' + escapeHtml(data.winner) + '</strong>', 'winner');
@@ -589,7 +598,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var s = scores[i];
             html += '<div class="score-row ' + (s.triggered ? 'triggered' : '') + '">';
             html += '<span class="player-name">' + escapeHtml(s.name) + '</span>';
-            html += '<span class="round-score">+' + s.round_score + '</span>';
+            html += '<span class="round-score">' + (s.round_score >= 0 ? '+' : '') + s.round_score + '</span>';
             html += '<span class="total-score">' + t('total_score') + ': ' + s.total_score + '</span>';
             html += '</div>';
         }

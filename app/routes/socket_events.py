@@ -669,6 +669,9 @@ def handle_next_round(data):
     game.round_number += 1
     initialize_game(game)
     
+    # Notify all players that a new round has started
+    emit('round_started', {'round_number': game.round_number}, room=code)
+    
     emit_personalized_game_state(game)
 
 

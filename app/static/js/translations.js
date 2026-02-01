@@ -92,6 +92,7 @@ var TRANSLATIONS = {
         game_over: "Game Over!",
         winner: "Winner",
         next_round: "Next Round",
+        started: "started",
         back_home: "Back to Home",
         final_scores: "Final Scores",
         
@@ -209,6 +210,7 @@ var TRANSLATIONS = {
         game_over: "Partie terminée !",
         winner: "Gagnant",
         next_round: "Manche suivante",
+        started: "commencée",
         back_home: "Retour à l'accueil",
         final_scores: "Scores finaux",
         
