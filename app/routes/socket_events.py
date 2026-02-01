@@ -425,6 +425,135 @@ def handle_start_game(data):
     print('DEBUG: Emitting game_state after start:', game_state)
     emit('game_started', {'game': game_state}, room=code)
     emit_personalized_game_state(game)
+
+
+@socketio.on('rematch_response')
+def handle_rematch_response(data):
+    """Handle rematch responses from players after game end."""
+    code = data.get('code', '').upper()
+    player_id = data.get('player_id')
+    accept = data.get('accept')
+
+    game = Game.query.filter_by(code=code).first()
+    if not game:
+        emit('error', {'message': 'Game not found'})
+        return
+    if game.status != 'finished':
+        emit('error', {'message': 'Rematch only available after game end'})
+        return
+
+    player = Player.query.get(player_id)
+    if not player or player.game_id != game.id:
+        emit('error', {'message': 'Player not found'})
+        return
+
+    # Initialize rematch state
+    if not hasattr(handle_rematch_response, 'state'):
+        handle_rematch_response.state = {}
+
+    if code not in handle_rematch_response.state:
+        host_player = game.players.filter_by(is_host=True).first()
+        all_humans = [p.id for p in game.players.filter_by(is_bot=False).all()]
+        handle_rematch_response.state[code] = {
+            'accepted': set(),
+            'declined': set(),
+            'host_id': host_player.id if host_player else None,
+            'players': set(all_humans),
+            'timer_started': False
+        }
+
+    state = handle_rematch_response.state[code]
+
+    if accept:
+        state['accepted'].add(player_id)
+        state['declined'].discard(player_id)
+    else:
+        state['declined'].add(player_id)
+        state['accepted'].discard(player_id)
+
+    def finalize_rematch():
+        current_state = handle_rematch_response.state.get(code)
+        if not current_state:
+            return
+
+        # If host did not accept, rematch fails
+        if not current_state['host_id'] or current_state['host_id'] not in current_state['accepted']:
+            emit('rematch_failed', {
+                'reason': 'Rematch failed: host did not accept.'
+            }, room=code)
+            # Redirect everyone to home
+            emit('game_ended', {
+                'reason': 'Rematch failed: host did not accept.',
+                'redirect': True
+            }, room=code)
+            handle_rematch_response.state.pop(code, None)
+            return
+
+        accepted_ids = list(current_state['accepted'])
+        if not accepted_ids:
+            emit('rematch_failed', {
+                'reason': 'Rematch failed: no players accepted.'
+            }, room=code)
+            emit('game_ended', {
+                'reason': 'Rematch failed: no players accepted.',
+                'redirect': True
+            }, room=code)
+            handle_rematch_response.state.pop(code, None)
+            return
+
+        # Create new game with same settings
+        new_game = Game(
+            code=Game.generate_code(),
+            max_players=game.max_players,
+            is_public=game.is_public,
+            turn_timer=game.turn_timer,
+            finish_round=game.finish_round
+        )
+        db.session.add(new_game)
+        db.session.flush()
+
+        # Add accepted players in original turn order
+        accepted_players = [p for p in game.players.order_by(Player.turn_order).all() if p.id in accepted_ids]
+        for idx, p in enumerate(accepted_players):
+            new_player = Player(
+                game_id=new_game.id,
+                name=p.name,
+                session_id=p.session_id,
+                is_host=(p.id == current_state['host_id']),
+                turn_order=idx
+            )
+            db.session.add(new_player)
+
+        db.session.commit()
+
+        # Notify accepted players to join new game
+        for p in accepted_players:
+            emit('rematch_created', {
+                'code': new_game.code
+            }, room=p.session_id)
+
+        # Redirect declined or no-response players to home
+        for p in game.players.filter_by(is_bot=False).all():
+            if p.id not in accepted_ids:
+                emit('rematch_declined', {
+                    'reason': 'Rematch declined.'
+                }, room=p.session_id)
+
+        handle_rematch_response.state.pop(code, None)
+
+    # Start a timeout to finalize rematch decisions
+    if not state['timer_started']:
+        state['timer_started'] = True
+
+        def rematch_timeout():
+            socketio.sleep(15)
+            finalize_rematch()
+
+        socketio.start_background_task(rematch_timeout)
+
+    # Finalize immediately if everyone has responded
+    if state['players'] and (state['accepted'] | state['declined']) >= state['players']:
+        finalize_rematch()
     # Personalized game_state for each player
     for p in players:
         game_dict = game.to_dict(include_players=False)

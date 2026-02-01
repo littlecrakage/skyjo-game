@@ -115,6 +115,7 @@
             <button id="ready-btn" class="btn btn-primary" style="display: none;" data-i18n="ready">
                 Ready
             </button>
+                </div>
         </div>
     </div>
 </div>
@@ -470,6 +471,23 @@ document.addEventListener('DOMContentLoaded', function() {
         // Redirect to home page
         window.location.href = "{{ url_for('main.index') }}";
     });
+        socket.on('rematch_created', function(data) {
+            if (data.code) {
+                window.location.href = "{{ url_for('game.room', code='') }}" + data.code;
+            }
+        });
+        socket.on('rematch_failed', function(data) {
+            showNotification(data.reason || 'Rematch failed.', 'warning');
+            setTimeout(function() {
+                window.location.href = "{{ url_for('main.index') }}";
+            }, 2000);
+        });
+        socket.on('rematch_declined', function(data) {
+            showNotification(data.reason || 'Rematch declined.', 'info');
+            setTimeout(function() {
+                window.location.href = "{{ url_for('main.index') }}";
+            }, 2000);
+        });
     socket.on('bot_thinking', function(data) {
         // Show visual indicator that bot is thinking
         addLogEntry('🤖 ' + escapeHtml(data.player_name) + ' ' + t('bot_thinking') + '...', 'bot-action');
@@ -809,10 +827,48 @@ document.addEventListener('DOMContentLoaded', function() {
             html += '</div>';
         }
         html += '</div>';
-        html += '<a href="/" class="btn btn-primary">' + t('back_home') + '</a>';
+        html += '<div class="game-end-actions">';
+        if (!IS_SPECTATOR && PLAYER_ID) {
+            html += '<button id="rematch-accept" class="btn btn-primary">Rematch</button>';
+            html += '<button id="rematch-decline" class="btn btn-secondary">No thanks</button>';
+        }
+        html += '<a href="/" class="btn btn-secondary">' + t('back_home') + '</a>';
+        html += '</div>';
         
         content.innerHTML = html;
         overlay.style.display = 'flex';
+
+        var acceptBtn = document.getElementById('rematch-accept');
+        var declineBtn = document.getElementById('rematch-decline');
+        if (acceptBtn) {
+            acceptBtn.addEventListener('click', function() {
+                var liveSocket = window.globalSocket || socket;
+                if (!liveSocket) return;
+                liveSocket.emit('rematch_response', {
+                    code: GAME_CODE,
+                    player_id: PLAYER_ID,
+                    accept: true
+                });
+                showNotification('Rematch accepted. Waiting for others...', 'info');
+                acceptBtn.disabled = true;
+                if (declineBtn) declineBtn.disabled = true;
+            });
+        }
+        if (declineBtn) {
+            declineBtn.addEventListener('click', function() {
+                var liveSocket = window.globalSocket || socket;
+                if (!liveSocket) return;
+                liveSocket.emit('rematch_response', {
+                    code: GAME_CODE,
+                    player_id: PLAYER_ID,
+                    accept: false
+                });
+                showNotification('Rematch declined. Returning to home...', 'info');
+                setTimeout(function() {
+                    window.location.href = "{{ url_for('main.index') }}";
+                }, 2000);
+            });
+        }
         
         // Hide ready button and status for game end
         document.getElementById('ready-btn').style.display = 'none';
