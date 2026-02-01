@@ -57,12 +57,12 @@
 
 ### High Priority
 - [x] **Timer enforcement** - Auto-skip turn when timer runs out (auto-draw + place on random card)
-- [ ] **Disconnection handling** - Handle player disconnect gracefully
-- [ ] **Navbar/menu**  to abandon game, back on the home page, link to the github
+- [x] **Disconnection handling** - Handle player disconnect gracefully
+- [x] **Navbar/menu**  to abandon game, back on the home page, link to the github
 - [ ] **Deployment to Render** - Get the game online
 
 ### Medium Priority
-- [ ] Kick/remove player option for host
+- [x] Kick/remove player option for host
 - [ ] Reconnection support (rejoin with session)
 - [ ] Mobile responsive layout improvements
 

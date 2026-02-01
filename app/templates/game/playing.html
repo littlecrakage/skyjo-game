@@ -129,6 +129,7 @@ console.log('JS loaded');
 // Global game constants and state variables
 var GAME_CODE = "{{ game.code }}";
 var PLAYER_ID = {{ player.id if player else 'null' }};
+var IS_HOST = {{ 'true' if player and player.is_host else 'false' }};
 var IS_SPECTATOR = {{ 'true' if not player else 'false' }};
 var TURN_TIMER = {{ game.turn_timer }};
 var gameState = null;
@@ -354,8 +355,19 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('player_removed', function(data) {
         if (data.removed_ids && data.removed_ids.length > 0) {
             addLogEntry('Disconnected player(s) removed from the game.', 'warning');
+        } else if (data.reason === 'kicked') {
+            addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> was removed by the host.', 'warning');
         }
     });
+    
+    // Handle being kicked
+    socket.on('kicked', function(data) {
+        showNotification(data.reason || 'You have been removed from the game.', 'warning');
+        setTimeout(function() {
+            window.location.href = "{{ url_for('main.index') }}";
+        }, 2000);
+    });
+    
     socket.on('game_ended', function(data) {
         hideDisconnectVote();
         
@@ -506,6 +518,9 @@ document.addEventListener('DOMContentLoaded', function() {
             html += '<div class="opponent-info">';
             html += '<span class="opponent-name">' + escapeHtml(p.name) + (p.is_bot ? ' 🤖' : '') + '</span>';
             html += '<span class="opponent-score">' + t('round_score') + ': ' + p.visible_score + ' | ' + t('total_score') + ': ' + p.score + '</span>';
+            if (IS_HOST && !IS_SPECTATOR) {
+                html += '<button class="btn-kick-game" onclick="kickPlayer(' + p.id + ', \'' + escapeHtml(p.name).replace(/'/g, "\\'") + '\')" title="Remove player">❌</button>';
+            }
             html += '</div>';
             html += '<div class="opponent-cards card-grid-small">' + renderCards(p.cards, false, p.id) + '</div>';
             html += '</div>';
@@ -862,7 +877,19 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // ============ Game Actions ============
     
-    
+    function kickPlayer(playerId, playerName) {
+        var liveSocket = window.globalSocket || socket;
+        if (!liveSocket) {
+            console.error('Socket not available for kickPlayer');
+            return;
+        }
+        if (confirm('Remove ' + playerName + ' from the game?')) {
+            liveSocket.emit('remove_player', {
+                code: GAME_CODE,
+                player_id: playerId
+            });
+        }
+    }
     
     // ============ Utilities ============
     

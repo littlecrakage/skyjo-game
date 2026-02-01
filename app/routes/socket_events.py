@@ -79,6 +79,14 @@ def handle_disconnect(reason):
         print(f"[DISCONNECT] Game: {game_code}, Status: {game.status}, Round: {game.round_number}")
         print(f"[DISCONNECT] Player is_host: {is_host}")
 
+        # Short grace period after game start to handle page transitions from lobby to playing screen
+        if game.started_at and game.status == 'playing':
+            seconds_since_start = (datetime.utcnow() - game.started_at).total_seconds()
+            if seconds_since_start < 10:
+                print(f"[DISCONNECT] Within page transition grace period ({seconds_since_start:.2f}s), no action")
+                print(f"[DISCONNECT] ===== END DISCONNECT =====\n")
+                return
+
         # Notify others in the room
         emit('player_disconnected', {
             'player_id': player_id,
@@ -306,7 +314,7 @@ def handle_add_bot(data):
 
 @socketio.on('remove_player')
 def handle_remove_player(data):
-    """Host removes a player (bot or disconnected player) from the game."""
+    """Host removes/kicks a player from the game (works in lobby and during gameplay)."""
     code = data.get('code', '').upper()
     player_id = data.get('player_id')
     session_id = get_session_id()
@@ -334,6 +342,14 @@ def handle_remove_player(data):
         return
     
     player_name = player_to_remove.name
+    is_bot = player_to_remove.is_bot
+    
+    # If game is in progress, check if we need to adjust current player index
+    if game.status == 'playing':
+        removed_turn_order = player_to_remove.turn_order
+        if game.current_player_index >= removed_turn_order:
+            game.current_player_index = max(0, game.current_player_index - 1)
+    
     db.session.delete(player_to_remove)
     
     # Reorder remaining players
@@ -342,13 +358,30 @@ def handle_remove_player(data):
     
     db.session.commit()
     
+    # Notify kicked player if they're connected (not a bot)
+    if not is_bot:
+        emit('kicked', {
+            'reason': 'You have been removed from the game by the host.'
+        }, room=player_to_remove.session_id)
+    
     # Notify all players
-    emit('player_left', {
+    emit('player_removed', {
         'player_id': player_id,
-        'player_name': player_name
+        'player_name': player_name,
+        'reason': 'kicked'
     }, room=code)
     
     emit_personalized_game_state(game)
+
+    # If only one player remains, end the game and redirect everyone
+    remaining_players = game.players.count()
+    if remaining_players < 2:
+        game.status = 'finished'
+        db.session.commit()
+        emit('game_ended', {
+            'reason': 'Game canceled: not enough players remaining.',
+            'redirect': True
+        }, room=code)
 
 
 @socketio.on('start_game')

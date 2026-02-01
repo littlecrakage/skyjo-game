@@ -647,3 +647,35 @@ footer {
     color: var(--text-muted);
     font-size: var(--font-size-sm);
 }
+/* ===== Kick Button ===== */
+.btn-kick, .btn-kick-game {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: var(--spacing-xs);
+    opacity: 0.6;
+    transition: all 0.2s ease;
+    margin-left: var(--spacing-sm);
+}
+
+.btn-kick:hover, .btn-kick-game:hover {
+    opacity: 1;
+    transform: scale(1.2);
+}
+
+.player-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.opponent-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+}

@@ -19,7 +19,7 @@
         <h2><span data-i18n="players_count">Players</span> ({{ game.player_count() }}/{{ game.max_players }})</h2>
         <div id="players-list" class="players-list">
             {% for p in game.players %}
-            <div class="player-card {% if p.is_host %}is-host{% endif %} {% if player and p.id == player.id %}is-you{% endif %}">
+            <div class="player-card {% if p.is_host %}is-host{% endif %} {% if player and p.id == player.id %}is-you{% endif %}" data-player-id="{{ p.id }}">
                 <span class="player-name">
                     {{ p.name }}
                     {% if p.is_host %}<span class="host-badge" data-i18n="host">Host</span>{% endif %}
@@ -28,6 +28,11 @@
                 </span>
                 {% if not p.is_connected %}
                 <span class="disconnected-badge" data-i18n="disconnected">Disconnected</span>
+                {% endif %}
+                {% if player and player.is_host and p.id != player.id %}
+                <button class="btn-kick" onclick="kickPlayer({{ p.id }}, '{{ p.name }}')" title="Remove player">
+                    ❌
+                </button>
                 {% endif %}
             </div>
             {% endfor %}
@@ -161,6 +166,33 @@
         showNotification(data.player_name + ' ' + t('left_game'));
     });
     
+    // Handle player removed/kicked
+    socket.on('player_removed', function(data) {
+        if (data.reason === 'kicked') {
+            showNotification(data.player_name + ' was removed by the host', 'warning');
+        } else {
+            showNotification(data.player_name + ' was removed', 'warning');
+        }
+    });
+    
+    // Handle being kicked
+    socket.on('kicked', function(data) {
+        showNotification(data.reason || 'You have been removed from the game.', 'warning');
+        setTimeout(function() {
+            window.location.href = "{{ url_for('main.index') }}";
+        }, 2000);
+    });
+
+    // Handle game ended (e.g., not enough players)
+    socket.on('game_ended', function(data) {
+        if (data.redirect) {
+            showNotification(data.reason || 'Game ended.', 'info');
+            setTimeout(function() {
+                window.location.href = "{{ url_for('main.index') }}";
+            }, 2000);
+        }
+    });
+    
     // Handle player connected
     socket.on('player_connected', function(data) {
         showNotification(data.player_name + ' ' + t('reconnected'));
@@ -183,7 +215,10 @@
     function updatePlayersUI(players) {
         var container = document.getElementById('players-list');
         container.innerHTML = players.map(function(p) {
-            return '<div class="player-card ' + (p.is_host ? 'is-host' : '') + ' ' + (p.id === PLAYER_ID ? 'is-you' : '') + '">' +
+            var kickBtn = (IS_HOST && p.id !== PLAYER_ID) ? 
+                '<button class="btn-kick" onclick="kickPlayer(' + p.id + ', \'' + escapeHtml(p.name).replace(/'/g, "\\'") + '\')" title="Remove player">❌</button>' : '';
+            
+            return '<div class="player-card ' + (p.is_host ? 'is-host' : '') + ' ' + (p.id === PLAYER_ID ? 'is-you' : '') + '" data-player-id="' + p.id + '">' +
                 '<span class="player-name">' +
                     escapeHtml(p.name) +
                     (p.is_host ? '<span class="host-badge">' + t('host') + '</span>' : '') +
@@ -191,8 +226,7 @@
                     (p.id === PLAYER_ID ? '<span class="you-badge">' + t('you') + '</span>' : '') +
                 '</span>' +
                 (!p.is_connected ? '<span class="disconnected-badge">' + t('disconnected') + '</span>' : '') +
-                (IS_HOST && p.id !== PLAYER_ID && document.getElementById('host-controls-section') ? 
-                    '<button class="btn btn-small btn-danger" onclick="removePlayer(' + p.id + ')">✕</button>' : '') +
+                kickBtn +
             '</div>';
         }).join('');
         
@@ -268,13 +302,18 @@
         closeBotModal();
     }
     
-    function removePlayer(playerId) {
-        if (confirm('Remove this player?')) {
+    function kickPlayer(playerId, playerName) {
+        if (confirm('Remove ' + playerName + ' from the game?')) {
             socket.emit('remove_player', { 
                 code: GAME_CODE, 
                 player_id: playerId 
             });
         }
+    }
+    
+    function removePlayer(playerId) {
+        // Deprecated, use kickPlayer instead
+        kickPlayer(playerId, 'this player');
     }
     
     function startGame() {
