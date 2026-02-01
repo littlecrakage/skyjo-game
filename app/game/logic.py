@@ -48,6 +48,7 @@ def shuffle_deck(deck):
 def initialize_game(game):
     """
     Initialize the game:
+    - Shuffle player turn order
     - Create and shuffle deck
     - Deal 12 cards to each player (4 columns x 3 rows)
     - Each player reveals 2 cards initially
@@ -55,6 +56,13 @@ def initialize_game(game):
     - Set game status to 'playing'
     - Player with highest revealed total starts
     """
+    # Shuffle player turn order
+    players = list(game.players.all())
+    random.shuffle(players)
+    for i, player in enumerate(players):
+        player.turn_order = i
+    db.session.commit()
+    
     # Create and shuffle deck
     deck = shuffle_deck(create_deck())
     
