@@ -383,6 +383,14 @@
     color: transparent;
 }
 
+/* ===== Not Your Turn - Greyed Out ===== */
+.game-area.not-my-turn .my-area,
+.game-area.not-my-turn .piles-row .piles {
+    opacity: 0.6;
+    filter: grayscale(40%);
+    transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
 /* ===== Held Card Area ===== */
 .held-card-area {
     display: flex;

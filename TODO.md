@@ -68,9 +68,10 @@
 - [ ] Mobile responsive layout improvements
 
 ### Low Priority / Nice-to-Have
+- [x] Make it easy to spot when not playing by greying out the board
 - [ ] Sound effects (card flip, turn notification)
 - [ ] Card flip animations
-- [ ] Rematch button after game ends
+- [x] Rematch button after game ends
 - [ ] Spectator count display
 - [ ] Game history / statistics
 - [ ] Player avatars

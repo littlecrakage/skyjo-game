@@ -424,6 +424,9 @@ document.addEventListener('DOMContentLoaded', function() {
             turnPhase = 'draw';
             showNotification(t('your_turn'), 'success');
         }
+        // Update greyed-out state when turn changes
+        isMyTurn = (data.current_player_id === PLAYER_ID);
+        updateGreyedOutState();
     });
     socket.on('round_ended', function(data) {
         addLogEntry('🏁 ' + t('round_over'), 'round');
@@ -510,9 +513,21 @@ document.addEventListener('DOMContentLoaded', function() {
             updateTurnIndicator();
             // Update isMyTurn flag
             isMyTurn = (gameState.current_player_id === PLAYER_ID && gamePhase === 'playing' && !IS_SPECTATOR);
+            
             console.log('[DEBUG] updateUI ran with gameState:', gameState);
         } catch (e) {
             console.error('Error in updateUI:', e);
+        }
+    }
+    
+    function updateGreyedOutState() {
+        var gameContainer = document.querySelector('.game-area');
+        if (gameContainer) {
+            if (isMyTurn || gamePhase === 'initial_reveal') {
+                gameContainer.classList.remove('not-my-turn');
+            } else {
+                gameContainer.classList.add('not-my-turn');
+            }
         }
     }
     
