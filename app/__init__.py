@@ -2,10 +2,12 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO
 from config import config
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # Initialize extensions (without app)
 db = SQLAlchemy()
 socketio = SocketIO()
+scheduler = BackgroundScheduler()
 
 
 def create_app(config_name='default'):
@@ -34,5 +36,12 @@ def create_app(config_name='default'):
     # Create database tables
     with app.app_context():
         db.create_all()
+        
+        # Start the scheduler with cleanup job if not already running
+        if not scheduler.running:
+            from app.routes.socket_events import cleanup_empty_games
+            scheduler.add_job(cleanup_empty_games, 'interval', minutes=20, id='cleanup_games', replace_existing=True)
+            scheduler.start()
+            print("[CLEANUP] Scheduler started with cleanup job (runs every 20 minutes)")
     
     return app

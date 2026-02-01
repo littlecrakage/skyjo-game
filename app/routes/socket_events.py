@@ -32,7 +32,7 @@ def emit_personalized_game_state(game, namespace=None):
 @socketio.on('connect')
 def handle_connect():
     """Handle client connection."""
-    session_id = get_session_id()
+    session_id = session.get('session_id')
     print(f"Client connected: {session_id}")
     # Join a room named after the session_id for personalized emits
     join_room(session_id)
@@ -1554,3 +1554,79 @@ def broadcast_game_update(game):
             return pp.to_dict(show_hidden=(pp.id == p.id))
         game_dict['players'] = [player_to_dict(pp) for pp in game.players.order_by(Player.turn_order).all()]
         emit('game_state', game_dict, room=p.session_id, namespace='/')
+
+
+def cleanup_empty_games():
+    """Background task to delete games with no non-bot players and inactive lobbies."""
+    from app import create_app
+    
+    # Create app context for the background task
+    app = create_app()
+    
+    with app.app_context():
+        print(f"\n[CLEANUP] ===== CLEANUP RUN at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} =====")
+        
+        try:
+            # Find all active/playing games
+            games_to_check = Game.query.filter(
+                Game.status.in_(['waiting', 'playing', 'finished'])
+            ).all()
+            
+            print(f"[CLEANUP] Found {len(games_to_check)} games to check")
+            
+            deleted_count = 0
+            empty_count = 0
+            inactive_lobby_count = 0
+            
+            for game in games_to_check:
+                # Count non-bot players
+                non_bot_players = Player.query.filter_by(
+                    game_id=game.id,
+                    is_bot=False
+                ).count()
+                
+                # If no non-bot players, delete the game and all its players
+                if non_bot_players == 0:
+                    print(f"[CLEANUP] Deleting empty game {game.code} (all bots or no players)")
+                    
+                    # Delete all players in the game
+                    Player.query.filter_by(game_id=game.id).delete()
+                    
+                    # Delete the game
+                    db.session.delete(game)
+                    db.session.commit()
+                    print(f"[CLEANUP] Game {game.code} deleted successfully")
+                    deleted_count += 1
+                    empty_count += 1
+                    continue
+                
+                # Delete inactive lobby games (waiting status for 10+ minutes)
+                if game.status == 'waiting' and game.created_at:
+                    minutes_since_creation = (datetime.utcnow() - game.created_at).total_seconds() / 60
+                    if minutes_since_creation >= 10:
+                        print(f"[CLEANUP] Deleting inactive lobby {game.code} (waiting for {minutes_since_creation:.1f} min)")
+                        
+                        # Delete all players in the game
+                        Player.query.filter_by(game_id=game.id).delete()
+                        
+                        # Delete the game
+                        db.session.delete(game)
+                        db.session.commit()
+                        print(f"[CLEANUP] Lobby {game.code} deleted successfully")
+                        deleted_count += 1
+                        inactive_lobby_count += 1
+            
+            print(f"[CLEANUP] Cleanup complete - Deleted: {deleted_count} games ({empty_count} empty, {inactive_lobby_count} inactive lobbies)")
+            print(f"[CLEANUP] ===== END CLEANUP RUN =====\n")
+        except Exception as e:
+            print(f"[CLEANUP] Error in cleanup_empty_games: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                db.session.rollback()
+            except:
+                pass
+
+
+# Cleanup task is registered in app/__init__.py
+

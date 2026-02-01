@@ -16,3 +16,6 @@ psycopg[binary]>=3.0
 
 # Utilities
 python-dotenv>=1.0
+
+# Scheduling
+APScheduler>=3.10

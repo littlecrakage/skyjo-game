@@ -61,6 +61,7 @@
 - [x] **Disconnection handling** - Handle player disconnect gracefully
 - [x] **Navbar/menu**  to abandon game, back on the home page, link to the github
 - [ ] **Deployment to Render** - Get the game online
+- [x] **Delete Deserted Game** - Game that are empty of non-bot player should be deleted
 
 ### Medium Priority
 - [x] Kick/remove player option for host
