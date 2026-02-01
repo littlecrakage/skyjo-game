@@ -50,7 +50,6 @@
 ## 🔄 In Progress
 
 <!-- *(nothing currently)* -->
-- Rematch button after game ends
 
 ---
 
