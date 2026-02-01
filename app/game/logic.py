@@ -74,10 +74,10 @@ def initialize_game(game):
         player.held_card = None
         player.round_score = 0
         player.triggered_end = False
-        
         # Bots automatically reveal 2 random cards
         if player.is_bot:
             reveal_random_initial_cards(player)
+    db.session.commit()
     
     # Put top card in discard pile
     discard_card = deck.pop()
@@ -239,6 +239,8 @@ def discard_held_card(game, player):
     
     player.held_card = None
     db.session.commit()
+    # Ensure game object is refreshed from DB so discard_pile is up-to-date
+    db.session.refresh(game)
 
 
 def reveal_card(game, player, card_index):

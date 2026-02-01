@@ -13,10 +13,27 @@ def get_session_id():
     return session.get('session_id')
 
 
+def emit_personalized_game_state(game, namespace=None):
+    """Emit personalized game state to each player, showing their own cards."""
+    # Build the shared game state (all non-player fields are the same for everyone)
+    base_game_dict = game.to_dict(include_players=False)
+    ordered_players = game.players.order_by(Player.turn_order).all()
+    for p in ordered_players:
+        # Personalize only the 'players' field
+        def player_to_dict(pp):
+            return pp.to_dict(show_hidden=(pp.id == p.id))
+        game_dict = dict(base_game_dict)  # shallow copy is fine since values are primitives
+        game_dict['players'] = [player_to_dict(pp) for pp in ordered_players]
+        emit('game_state', game_dict, room=p.session_id, namespace=namespace)
+
+
 @socketio.on('connect')
 def handle_connect():
     """Handle client connection."""
-    print(f"Client connected: {get_session_id()}")
+    session_id = get_session_id()
+    print(f"Client connected: {session_id}")
+    # Join a room named after the session_id for personalized emits
+    join_room(session_id)
 
 
 @socketio.on('disconnect')
@@ -30,12 +47,87 @@ def handle_disconnect():
     if player:
         player.is_connected = False
         db.session.commit()
-        
+
+        code = player.game.code
+        game = player.game
+
         # Notify others in the room
         emit('player_disconnected', {
             'player_id': player.id,
             'player_name': player.name
-        }, room=player.game.code)
+        }, room=code)
+
+        # Check if any non-bot players remain
+        non_bot_players = [p for p in game.players if not p.is_bot and p.is_connected]
+        if not non_bot_players:
+            # End the game if no non-bot players remain
+            game.status = 'finished'
+            db.session.commit()
+            emit('game_ended', {
+                'reason': 'No non-bot players remain. Game closed.'
+            }, room=code)
+            return
+
+        # Start a vote among non-bot players to continue or end
+        # Store vote state in memory (could use a global dict or a better solution for production)
+        if not hasattr(handle_disconnect, 'votes'):
+            handle_disconnect.votes = {}
+        handle_disconnect.votes[code] = {
+            'votes': {},
+            'voters': [p.id for p in game.players if not p.is_bot and p.is_connected],
+            'active': True
+        }
+        emit('disconnect_vote_start', {
+            'disconnected_player': player.name,
+            'voters': handle_disconnect.votes[code]['voters']
+        }, room=code)
+
+# SocketIO event for voting
+@socketio.on('disconnect_vote')
+def handle_disconnect_vote(data):
+    code = data.get('code')
+    player_id = data.get('player_id')
+    vote = data.get('vote')  # 'continue' or 'end'
+
+    # Retrieve vote state
+    votes_state = getattr(handle_disconnect, 'votes', {}).get(code)
+    if not votes_state or not votes_state['active']:
+        return
+    votes_state['votes'][player_id] = vote
+
+    # If any vote is 'end', end the game
+    if 'end' in votes_state['votes'].values():
+        game = Game.query.filter_by(code=code).first()
+        if game:
+            game.status = 'finished'
+            db.session.commit()
+            emit('game_ended', {
+                'reason': 'Players voted to end the game.'
+            }, room=code)
+        votes_state['active'] = False
+        return
+
+    # If all votes are 'continue', remove the disconnected player and resume the game
+    if set(votes_state['votes'].keys()) == set(votes_state['voters']):
+        # Remove all disconnected players from the game
+        game = Game.query.filter_by(code=code).first()
+        if game:
+            disconnected_players = [p for p in game.players if not p.is_bot and not p.is_connected]
+            for p in disconnected_players:
+                db.session.delete(p)
+            # Reorder remaining players
+            for i, p in enumerate(game.players.order_by(Player.turn_order).all()):
+                p.turn_order = i
+            db.session.commit()
+            emit('player_removed', {
+                'removed_ids': [p.id for p in disconnected_players],
+                'reason': 'disconnected'
+            }, room=code)
+            emit_personalized_game_state(game)
+        emit('disconnect_vote_result', {
+            'result': 'continue'
+        }, room=code)
+        votes_state['active'] = False
 
 
 @socketio.on('join_room')
@@ -49,8 +141,10 @@ def handle_join_room(data):
         emit('error', {'message': 'Game not found'})
         return
     
-    # Join the SocketIO room
+    # Join the SocketIO room for the game
     join_room(code)
+    # Also join a room named after the session_id for personalized emits
+    join_room(session_id)
     
     # Find the player and mark as connected
     player = game.players.filter_by(session_id=session_id).first()
@@ -64,8 +158,9 @@ def handle_join_room(data):
             'player_name': player.name
         }, room=code, include_self=False)
     
-    # Send current game state to the joining client
-    emit('game_state', game.to_dict(include_players=True))
+    # Send current game state to the joining client, showing their own cards
+    player_id = player.id if player else None
+    emit_personalized_game_state(game)
 
 
 @socketio.on('leave_room')
@@ -121,8 +216,14 @@ def handle_add_bot(data):
         'player': bot.to_dict()
     }, room=code)
     
-    # Send updated game state
-    emit('game_state', game.to_dict(include_players=True), room=code)
+    emit_personalized_game_state(game)
+    # Personalized game_state for each player
+    for p in game.players:
+        game_dict = game.to_dict(include_players=False)
+        def player_to_dict(pp):
+            return pp.to_dict(show_hidden=(pp.id == p.id))
+        game_dict['players'] = [player_to_dict(pp) for pp in game.players.order_by(Player.turn_order).all()]
+        emit('game_state', game_dict, room=p.session_id)
 
 
 @socketio.on('remove_player')
@@ -169,7 +270,7 @@ def handle_remove_player(data):
         'player_name': player_name
     }, room=code)
     
-    emit('game_state', game.to_dict(include_players=True), room=code)
+    emit_personalized_game_state(game)
 
 
 @socketio.on('start_game')
@@ -202,11 +303,24 @@ def handle_start_game(data):
     # Initialize the game (will be implemented in game logic)
     from app.game.logic import initialize_game
     initialize_game(game)
-    
-    # Notify all players
-    emit('game_started', {
-        'game': game.to_dict(include_players=True)
-    }, room=code)
+
+    # Reload game and players from DB to ensure latest card data
+    from app.models.game import Game as GameModel, Player as PlayerModel
+    game = GameModel.query.filter_by(code=code).first()
+    players = game.players.order_by(PlayerModel.turn_order).all()
+
+    # Notify all players with updated game state (including player cards)
+    game_state = game.to_dict(include_players=True)
+    print('DEBUG: Emitting game_state after start:', game_state)
+    emit('game_started', {'game': game_state}, room=code)
+    emit_personalized_game_state(game)
+    # Personalized game_state for each player
+    for p in players:
+        game_dict = game.to_dict(include_players=False)
+        def player_to_dict(pp):
+            return pp.to_dict(show_hidden=(pp.id == p.id))
+        game_dict['players'] = [player_to_dict(pp) for pp in players]
+        emit('game_state', game_dict, room=p.session_id)
 
 
 # ============ Gameplay Events ============
@@ -254,7 +368,7 @@ def handle_reveal_initial(data):
         'player_name': player.name,
         'revealed_value': revealed_value
     }, room=code)
-    emit('game_state', game.to_dict(include_players=True), room=code)
+    emit_personalized_game_state(game)
     
     # Check if all players have revealed 2 cards
     all_ready = all(p.revealed_count() >= 2 for p in game.players)
@@ -332,8 +446,9 @@ def handle_draw_card(data):
         'from_discard': from_discard
     }, room=code)
     
-    # Broadcast game state
-    emit('game_state', game.to_dict(include_players=True), room=code)
+    # Always re-query the game object before emitting state
+    game = Game.query.filter_by(code=code).first()
+    emit_personalized_game_state(game)
 
 
 @socketio.on('place_card')
@@ -394,7 +509,7 @@ def handle_place_card(data):
         if next_player.is_bot:
             process_bot_turn(game, next_player)
     
-    emit('game_state', game.to_dict(include_players=True), room=code)
+    emit_personalized_game_state(game)
 
 
 @socketio.on('discard_held')
@@ -437,7 +552,8 @@ def handle_discard_held(data):
     }, room=code)
     
     # Player now needs to reveal a card - don't end turn yet
-    emit('game_state', game.to_dict(include_players=True), room=code)
+    game = Game.query.filter_by(code=code).first()
+    emit_personalized_game_state(game)
 
 
 @socketio.on('reveal_card')
@@ -496,7 +612,7 @@ def handle_reveal_card(data):
         if next_player.is_bot:
             process_bot_turn(game, next_player)
     
-    emit('game_state', game.to_dict(include_players=True), room=code)
+    emit_personalized_game_state(game)
 
 
 def handle_round_end(game, code):
@@ -553,7 +669,7 @@ def handle_next_round(data):
     game.round_number += 1
     initialize_game(game)
     
-    emit('game_state', game.to_dict(include_players=True), room=code)
+    emit_personalized_game_state(game)
 
 
 @socketio.on('turn_timeout')
@@ -593,7 +709,7 @@ def handle_turn_timeout(data):
                     'card_index': target_idx
                 }, room=code)
         
-        emit('game_state', game.to_dict(include_players=True), room=code)
+        emit_personalized_game_state(game)
         emit('player_timeout', {'player_name': player.name}, room=code)
         
         # Check if all players have revealed 2 cards
@@ -613,7 +729,7 @@ def handle_turn_timeout(data):
                 'current_player_name': current.name
             }, room=code)
             
-            emit('game_state', game.to_dict(include_players=True), room=code)
+            emit_personalized_game_state(game)
             
             # If starting player is a bot, process their turn
             if current.is_bot:
@@ -670,7 +786,12 @@ def handle_turn_timeout(data):
             revealed_idx = random.choice([i for i, c in enumerate(cards) if c.get('revealed') and not c.get('eliminated')])
             reveal_card(game, player, revealed_idx)
     
-    emit('game_state', game.to_dict(include_players=True), room=code)
+    for p in game.players:
+        game_dict = game.to_dict(include_players=False)
+        def player_to_dict(pp):
+            return pp.to_dict(show_hidden=(pp.id == p.id))
+        game_dict['players'] = [player_to_dict(pp) for pp in game.players.order_by(Player.turn_order).all()]
+        emit('game_state', game_dict, room=p.session_id)
     
     # Show timeout notification to all
     emit('player_timeout', {
@@ -690,7 +811,7 @@ def handle_turn_timeout(data):
         if next_player.is_bot:
             process_bot_turn(game, next_player)
     
-    emit('game_state', game.to_dict(include_players=True), room=code)
+    emit_personalized_game_state(game)
 
 
 def process_bot_turn(game, bot):
@@ -1077,7 +1198,8 @@ def process_bot_turn(game, bot):
                 'revealed_value': revealed_value
             }, room=code, namespace='/')
     
-    emit('game_state', game.to_dict(include_players=True), room=code, namespace='/')
+    # Personalized game_state for each player
+    emit_personalized_game_state(game, namespace='/')
     
     # Check round end
     if check_round_end(game, bot):
@@ -1095,5 +1217,10 @@ def process_bot_turn(game, bot):
 
 def broadcast_game_update(game):
     """Broadcast game state to all players in a room."""
-    emit('game_state', game.to_dict(include_players=True), 
-         room=game.code, namespace='/')
+    # Personalized game_state for each player
+    for p in game.players:
+        game_dict = game.to_dict(include_players=False)
+        def player_to_dict(pp):
+            return pp.to_dict(show_hidden=(pp.id == p.id))
+        game_dict['players'] = [player_to_dict(pp) for pp in game.players.order_by(Player.turn_order).all()]
+        emit('game_state', game_dict, room=p.session_id, namespace='/')

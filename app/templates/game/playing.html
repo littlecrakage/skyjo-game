@@ -4,10 +4,22 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/game.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/disconnect_vote.css') }}">
 {% endblock %}
 
 {% block content %}
 <div class="game-wrapper">
+    <!-- Disconnect Vote Modal -->
+    <div id="disconnect-vote-modal">
+        <div class="modal-content">
+            <h2 id="disconnect-vote-title">A player disconnected</h2>
+            <p id="disconnect-vote-message">Do you want to continue the game without them, or end the game?</p>
+            <div id="disconnect-vote-buttons">
+                <button id="vote-continue-btn" class="btn btn-primary">Continue</button>
+                <button id="vote-end-btn" class="btn btn-danger">End Game</button>
+            </div>
+        </div>
+    </div>
     <!-- Game Log Panel -->
     <div id="game-log" class="game-log">
         <div class="game-log-header">
@@ -107,86 +119,203 @@
 {% block scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
 <script>
+console.log('JS loaded');
+
+// Global game constants and state variables
+var GAME_CODE = "{{ game.code }}";
+var PLAYER_ID = {{ player.id if player else 'null' }};
+var IS_SPECTATOR = {{ 'true' if not player else 'false' }};
+var TURN_TIMER = {{ game.turn_timer }};
+var gameState = null;
+var myPlayer = null;
+var isMyTurn = false;
+var gamePhase = 'waiting';
+var turnPhase = 'draw';
+var timerInterval = null;
+document.addEventListener('DOMContentLoaded', function() {
+                // Draw from draw pile
+                document.getElementById('draw-pile').addEventListener('click', function() {
+                    if (!isMyTurn || IS_SPECTATOR) return;
+                    if (turnPhase !== 'draw') {
+                        showNotification('You already drew a card this turn', 'error');
+                        return;
+                    }
+                    if (myPlayer && myPlayer.held_card !== null) return;
+                    socket.emit('draw_card', { code: GAME_CODE, from_discard: false });
+                });
+
+                // Draw from discard pile
+                document.getElementById('discard-pile').addEventListener('click', function() {
+                    if (!isMyTurn || IS_SPECTATOR) return;
+                    if (turnPhase !== 'draw') {
+                        showNotification('You already drew a card this turn', 'error');
+                        return;
+                    }
+                    if (myPlayer && myPlayer.held_card !== null) return;
+                    socket.emit('draw_card', { code: GAME_CODE, from_discard: true });
+                });
+
+                // Discard held card
+                document.getElementById('discard-held-btn').addEventListener('click', function() {
+                    if (!isMyTurn || IS_SPECTATOR) return;
+                    socket.emit('discard_held', { code: GAME_CODE });
+                    hideHeldCard();
+                    turnPhase = 'reveal';
+                    showNotification('Now click a face-down card to reveal it');
+                });
+
+                // Next round button
+                document.getElementById('next-round-btn').addEventListener('click', function() {
+                    socket.emit('next_round', { code: GAME_CODE });
+                    document.getElementById('round-end-overlay').style.display = 'none';
+                });
+            window.handleCardClick = handleCardClick;
+        // ============ Game Actions ============
+        function handleCardClick(index, playerId) {
+            console.log('Card clicked:', index, 'playerId:', playerId, 'gamePhase:', gamePhase, 'turnPhase:', turnPhase);
+            if (IS_SPECTATOR) {
+                return;
+            }
+            // Initial reveal phase
+            if (gamePhase === 'initial_reveal' && playerId === PLAYER_ID) {
+                socket.emit('reveal_initial', { 
+                    code: GAME_CODE, 
+                    card_index: index 
+                });
+                return;
+            }
+            // Normal gameplay - must be our turn
+            if (!isMyTurn) {
+                return;
+            }
+            if (playerId !== PLAYER_ID) {
+                return;
+            }
+            // Must draw first
+            if (turnPhase === 'draw') {
+                showNotification('Draw a card first (click draw pile or discard pile)', 'error');
+                return;
+            }
+            // If holding a card, place it
+            if (turnPhase === 'place_or_discard' && myPlayer && myPlayer.held_card !== null) {
+                socket.emit('place_card', { 
+                    code: GAME_CODE, 
+                    card_index: index 
+                });
+                hideHeldCard();
+                turnPhase = 'draw';
+            }
+            // If in reveal phase (after discarding), reveal a face-down card
+            else if (turnPhase === 'reveal') {
+                var card = myPlayer.cards[index];
+                if (card && !card.revealed) {
+                    socket.emit('reveal_card', { 
+                        code: GAME_CODE, 
+                        card_index: index 
+                    });
+                    turnPhase = 'draw';
+                } else {
+                    showNotification('Select a face-down card to reveal', 'error');
+                }
+            }
+        }
+    console.log('DOMContentLoaded running');
+    // Debug: log socket connection status
+    var socket = io();
+    socket.on('connect', function() {
+        console.log('[DEBUG] Socket connected:', socket.id);
+        // Join the game room after connecting
+        socket.emit('join_room', { code: GAME_CODE });
+    });
+    socket.on('disconnect', function(reason) {
+        console.log('[DEBUG] Socket disconnected:', reason);
+    });
+    if (typeof window.io === 'undefined') {
+        console.error('Socket.IO client library not loaded!');
+        return;
+    }
+    // ============ Disconnect Vote Logic ============
+    var disconnectVoteActive = false;
+    var disconnectVoteModal = document.getElementById('disconnect-vote-modal');
+    var voteContinueBtn = document.getElementById('vote-continue-btn');
+    var voteEndBtn = document.getElementById('vote-end-btn');
+    var disconnectVoteTitle = document.getElementById('disconnect-vote-title');
+    var disconnectVoteMessage = document.getElementById('disconnect-vote-message');
+
+    function showDisconnectVote(disconnectedPlayer, voters) {
+        disconnectVoteTitle.textContent = disconnectedPlayer + ' disconnected';
+        disconnectVoteMessage.textContent = 'Do you want to continue the game without them, or end the game?';
+        disconnectVoteModal.style.display = 'flex';
+        disconnectVoteActive = true;
+    }
+    function hideDisconnectVote() {
+        disconnectVoteModal.style.display = 'none';
+        disconnectVoteActive = false;
+    }
+
     // Game constants
     var GAME_CODE = "{{ game.code }}";
     var PLAYER_ID = {{ player.id if player else 'null' }};
     var IS_SPECTATOR = {{ 'true' if not player else 'false' }};
     var TURN_TIMER = {{ game.turn_timer }};
-    
-    // Game state
-    var gameState = null;
-    var myPlayer = null;
-    var isMyTurn = false;
-    var gamePhase = 'waiting';
-    var turnPhase = 'draw';
-    var timerInterval = null;
-    
-    // Connect to WebSocket
-    var socket = io();
-    
-    socket.on('connect', function() {
-        console.log('Connected to game');
-        socket.emit('join_room', { code: GAME_CODE });
+
+    // (Removed duplicate game state variable declarations; using globals)
+
+    // ...existing code...
+
+    voteContinueBtn.addEventListener('click', function() {
+        if (!disconnectVoteActive) return;
+        socket.emit('disconnect_vote', { code: GAME_CODE, player_id: PLAYER_ID, vote: 'continue' });
+        hideDisconnectVote();
+        showNotification('You voted to continue the game.', 'info');
     });
-    
-    socket.on('disconnect', function() {
-        showNotification('Connection lost. Reconnecting...', 'error');
+    voteEndBtn.addEventListener('click', function() {
+        if (!disconnectVoteActive) return;
+        socket.emit('disconnect_vote', { code: GAME_CODE, player_id: PLAYER_ID, vote: 'end' });
+        hideDisconnectVote();
+        showNotification('You voted to end the game.', 'info');
     });
-    
-    socket.on('error', function(data) {
-        showNotification(data.message, 'error');
-    });
-    
-    // Game state update
-    socket.on('game_state', function(game) {
-        console.log('=== GAME_STATE EVENT ===');
-        console.log('current_player_id:', game.current_player_id, 'PLAYER_ID:', PLAYER_ID);
-        console.log('game.status:', game.status, 'IS_SPECTATOR:', IS_SPECTATOR);
-        
-        var wasMyTurn = isMyTurn;
-        gameState = game;
+
+    // All socket event handlers and emits moved inside this block
+    // Game state handler: update board when backend emits game_state
+    socket.on('game_state', function(data) {
+        console.log('[DEBUG] Received game_state:', data);
+        gameState = data;
+        // Find my player object
         myPlayer = null;
-        if (game.players) {
-            for (var i = 0; i < game.players.length; i++) {
-                if (game.players[i].id === PLAYER_ID) {
-                    myPlayer = game.players[i];
+        if (gameState && gameState.players) {
+            for (var i = 0; i < gameState.players.length; i++) {
+                if (gameState.players[i].id === PLAYER_ID) {
+                    myPlayer = gameState.players[i];
                     break;
                 }
             }
         }
-        
-        console.log('myPlayer:', myPlayer ? 'found' : 'not found');
-        console.log('revealed_count:', myPlayer ? myPlayer.revealed_count : 'N/A');
-        
+        console.log('[DEBUG] myPlayer:', myPlayer);
         updateUI();
-        
-        // Robust timer logic: always start timer on your turn or during initial reveal
-        var nowMyTurn = (game.current_player_id === PLAYER_ID && game.status === 'playing' && !IS_SPECTATOR);
-        var initialRevealDone = myPlayer && myPlayer.revealed_count >= 2;
-        var needsInitialReveal = myPlayer && myPlayer.revealed_count < 2 && game.status === 'playing' && !IS_SPECTATOR;
-
-        // Always stop timer first to prevent overlap
-        stopTimer();
-
-        if (needsInitialReveal) {
-            // During initial reveal phase - timer for everyone who hasn't revealed
-            console.log('>>> Starting timer (initial reveal phase)');
-            startTimer();
-        } else if (nowMyTurn && initialRevealDone) {
-            if (!wasMyTurn) {
-                // It just became our turn
-                turnPhase = 'draw';
-            }
-            console.log('>>> Starting timer (our turn)');
-            startTimer();
-        } else {
-            // Not my turn or not in reveal phase
-            console.log('>>> Stopping timer (not my turn or not reveal phase)');
-            stopTimer();
+    });
+    socket.on('disconnect_vote_start', function(data) {
+        if (IS_SPECTATOR || !myPlayer || myPlayer.is_bot || !myPlayer.is_connected) return;
+        if (data.voters && data.voters.indexOf(PLAYER_ID) !== -1) {
+            showDisconnectVote(data.disconnected_player, data.voters);
+        }
+        addLogEntry('<strong>' + escapeHtml(data.disconnected_player) + '</strong> disconnected. Vote to continue or end the game.', 'warning');
+    });
+    socket.on('disconnect_vote_result', function(data) {
+        if (data.result === 'continue') {
+            showNotification('Players voted to continue. Disconnected player(s) removed.', 'success');
+            addLogEntry('Players voted to continue. Disconnected player(s) removed.', 'success');
+        }
+        hideDisconnectVote();
+    });
+    socket.on('player_removed', function(data) {
+        if (data.removed_ids && data.removed_ids.length > 0) {
+            addLogEntry('Disconnected player(s) removed from the game.', 'warning');
         }
     });
-    
-    // Card drawn
+    socket.on('game_ended', function(data) {
+        hideDisconnectVote();
+    });
     socket.on('card_drawn', function(data) {
         if (data.player_id === PLAYER_ID) {
             turnPhase = 'place_or_discard';
@@ -196,67 +325,49 @@
         var cardDisplay = data.card_value !== null ? ' [' + data.card_value + ']' : '';
         addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('drew_from') + ' ' + source + cardDisplay, 'action');
     });
-    
-    // Card placed
     socket.on('card_placed', function(data) {
         var placedVal = data.placed_value !== undefined ? ' [' + data.placed_value + ']' : '';
         var discardedVal = data.discarded_value !== undefined ? ' → ' + t('discard') + ' [' + data.discarded_value + ']' : '';
         addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('placed_card') + placedVal + discardedVal, 'action');
     });
-    
-    // Card revealed
     socket.on('card_revealed', function(data) {
         var revealedVal = data.revealed_value !== undefined ? ' [' + data.revealed_value + ']' : '';
         addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('revealed_card') + revealedVal, 'action');
     });
-    
-    // Card discarded (when player discards held card to reveal instead)
     socket.on('card_discarded', function(data) {
         var discardedVal = data.discarded_value !== undefined ? ' [' + data.discarded_value + ']' : '';
         addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('discarded_card') + discardedVal, 'action');
     });
-    
-    // Column eliminated
     socket.on('column_eliminated', function(data) {
         addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('eliminated_column') + ' 🎉', 'success');
     });
-    
-    // Player timeout
     socket.on('player_timeout', function(data) {
         addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('timed_out') + ' ⏱️', 'timeout');
-        // Don't call stopTimer() here - timer is managed by game_state handler
     });
-    
-    // Turn changed
     socket.on('turn_changed', function(data) {
         updateTurnIndicator(data.current_player_id, data.current_player_name);
         addLogEntry('➡️ ' + t('turn_of') + ' <strong>' + escapeHtml(data.current_player_name) + '</strong>', 'turn');
         if (data.current_player_id === PLAYER_ID) {
             turnPhase = 'draw';
             showNotification(t('your_turn'), 'success');
-            // Timer will be started by game_state handler
         }
     });
-    
-    // Round ended
     socket.on('round_ended', function(data) {
         addLogEntry('🏁 ' + t('round_over'), 'round');
         showRoundEnd(data.scores, data.trigger_player);
     });
-    
-    // Game ended
     socket.on('game_ended', function(data) {
         addLogEntry('🏆 ' + t('game_over') + ' - ' + t('winner') + ': <strong>' + escapeHtml(data.winner) + '</strong>', 'winner');
         showGameEnd(data.winner, data.final_scores);
     });
-    
-    // Initial reveal complete
     socket.on('initial_reveal_complete', function(data) {
         if (data.all_ready) {
             gamePhase = 'playing';
             hidePhaseOverlay();
         }
     });
+    // ...rest of your JS code that uses socket...
+});
     
     // ============ UI Functions ============
     
@@ -265,16 +376,15 @@
             console.log('No gameState yet');
             return;
         }
-        
         try {
             updatePhase();
             updateOpponents();
             updateMyCards();
             updatePiles();
             updateTurnIndicator();
-            
             // Update isMyTurn flag
             isMyTurn = (gameState.current_player_id === PLAYER_ID && gamePhase === 'playing' && !IS_SPECTATOR);
+            console.log('[DEBUG] updateUI ran with gameState:', gameState);
         } catch (e) {
             console.error('Error in updateUI:', e);
         }
@@ -314,13 +424,15 @@
             return;
         }
         
+        // Always render the card grid, even if all cards are hidden, so player can click for initial reveal
         if (!myPlayer.cards || myPlayer.cards.length === 0) {
-            container.innerHTML = '<p>Loading cards...</p>';
-            return;
+            // Instead of hiding, show empty grid for initial reveal phase
+            var emptyCards = Array(12).fill({ value: null, revealed: false, eliminated: false });
+            container.innerHTML = renderCards(emptyCards, true, PLAYER_ID);
+        } else {
+            var canClick = isMyTurn || gamePhase === 'initial_reveal';
+            container.innerHTML = renderCards(myPlayer.cards, canClick, PLAYER_ID);
         }
-        
-        var canClick = isMyTurn || gamePhase === 'initial_reveal';
-        container.innerHTML = renderCards(myPlayer.cards, canClick, PLAYER_ID);
         document.getElementById('my-score').textContent = t('round_score') + ': ' + myPlayer.visible_score + ' | ' + t('total_score') + ': ' + myPlayer.score;
     }
     
@@ -574,97 +686,7 @@
     
     // ============ Game Actions ============
     
-    function handleCardClick(index, playerId) {
-        console.log('Card clicked:', index, 'playerId:', playerId, 'gamePhase:', gamePhase, 'turnPhase:', turnPhase);
-        
-        if (IS_SPECTATOR) {
-            return;
-        }
-        
-        // Initial reveal phase
-        if (gamePhase === 'initial_reveal' && playerId === PLAYER_ID) {
-            socket.emit('reveal_initial', { 
-                code: GAME_CODE, 
-                card_index: index 
-            });
-            return;
-        }
-        
-        // Normal gameplay - must be our turn
-        if (!isMyTurn) {
-            return;
-        }
-        
-        if (playerId !== PLAYER_ID) {
-            return;
-        }
-        
-        // Must draw first
-        if (turnPhase === 'draw') {
-            showNotification('Draw a card first (click draw pile or discard pile)', 'error');
-            return;
-        }
-        
-        // If holding a card, place it
-        if (turnPhase === 'place_or_discard' && myPlayer && myPlayer.held_card !== null) {
-            socket.emit('place_card', { 
-                code: GAME_CODE, 
-                card_index: index 
-            });
-            hideHeldCard();
-            turnPhase = 'draw';
-        }
-        // If in reveal phase (after discarding), reveal a face-down card
-        else if (turnPhase === 'reveal') {
-            var card = myPlayer.cards[index];
-            if (card && !card.revealed) {
-                socket.emit('reveal_card', { 
-                    code: GAME_CODE, 
-                    card_index: index 
-                });
-                turnPhase = 'draw';
-            } else {
-                showNotification('Select a face-down card to reveal', 'error');
-            }
-        }
-    }
     
-    // Draw from draw pile
-    document.getElementById('draw-pile').addEventListener('click', function() {
-        if (!isMyTurn || IS_SPECTATOR) return;
-        if (turnPhase !== 'draw') {
-            showNotification('You already drew a card this turn', 'error');
-            return;
-        }
-        if (myPlayer && myPlayer.held_card !== null) return;
-        socket.emit('draw_card', { code: GAME_CODE, from_discard: false });
-    });
-    
-    // Draw from discard pile
-    document.getElementById('discard-pile').addEventListener('click', function() {
-        if (!isMyTurn || IS_SPECTATOR) return;
-        if (turnPhase !== 'draw') {
-            showNotification('You already drew a card this turn', 'error');
-            return;
-        }
-        if (myPlayer && myPlayer.held_card !== null) return;
-        socket.emit('draw_card', { code: GAME_CODE, from_discard: true });
-    });
-    
-    // Discard held card
-    document.getElementById('discard-held-btn').addEventListener('click', function() {
-        if (!isMyTurn || IS_SPECTATOR) return;
-        socket.emit('discard_held', { code: GAME_CODE });
-        hideHeldCard();
-        turnPhase = 'reveal';
-        showNotification('Now click a face-down card to reveal it');
-    });
-    
-    // Next round button
-    document.getElementById('next-round-btn').addEventListener('click', function() {
-        socket.emit('next_round', { code: GAME_CODE });
-        document.getElementById('round-end-overlay').style.display = 'none';
-    });
     
     // ============ Utilities ============
     

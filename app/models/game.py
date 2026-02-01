@@ -187,28 +187,19 @@ class Player(db.Model):
     
     def to_dict(self, show_hidden=False):
         """Convert to dictionary for JSON response.
-        
         Args:
-            show_hidden: If True, show all card values. If False, hide unrevealed cards.
+            show_hidden: If True, show values for revealed cards only. If False, hide unrevealed cards.
         """
         cards = self.get_cards()
-        
-        # For display, hide unrevealed card values unless show_hidden is True
-        if not show_hidden:
-            cards = [
-                {
-                    'value': card['value'], 
-                    'revealed': True,
-                    'eliminated': card.get('eliminated', False)
-                } if card.get('revealed') 
-                else {
-                    'value': None, 
-                    'revealed': False,
-                    'eliminated': card.get('eliminated', False)
-                }
-                for card in cards
-            ]
-        
+        # Always only show value for revealed cards, never for unrevealed
+        cards = [
+            {
+                'value': card['value'] if card.get('revealed') else None,
+                'revealed': card.get('revealed', False),
+                'eliminated': card.get('eliminated', False)
+            }
+            for card in cards
+        ]
         return {
             'id': self.id,
             'name': self.name,
