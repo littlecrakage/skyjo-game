@@ -44,6 +44,12 @@ def create():
         
         # Create host player
         session_id = get_or_create_session_id()
+        
+        # Mark player as disconnected from any previous games
+        old_players = Player.query.filter_by(session_id=session_id).all()
+        for old_player in old_players:
+            old_player.is_connected = False
+        
         host = Player(
             game_id=game.id,
             name=player_name,
@@ -90,6 +96,11 @@ def join():
             if existing_player:
                 # Reconnecting - just redirect
                 return redirect(url_for('game.room', code=game.code))
+            
+            # Mark player as disconnected from any previous games
+            old_players = Player.query.filter_by(session_id=session_id).all()
+            for old_player in old_players:
+                old_player.is_connected = False
             
             # Create new player
             turn_order = game.player_count()

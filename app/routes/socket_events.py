@@ -1,6 +1,8 @@
 """
 WebSocket event handlers for real-time game updates.
 """
+from datetime import datetime
+
 from flask import session
 from flask_socketio import emit, join_room, leave_room
 
@@ -37,50 +39,112 @@ def handle_connect():
 
 
 @socketio.on('disconnect')
-def handle_disconnect():
+def handle_disconnect(reason):
     """Handle client disconnection."""
     session_id = get_session_id()
-    print(f"Client disconnected: {session_id}")
+    print(f"\n[DISCONNECT] ===== DISCONNECT EVENT =====")
+    print(f"[DISCONNECT] Session: {session_id}, Reason: {reason}")
     
     # Find player by session_id and mark as disconnected
     player = Player.query.filter_by(session_id=session_id).first()
     if player:
+        print(f"[DISCONNECT] Player found: {player.name} (id: {player.id}, is_bot: {player.is_bot})")
+        
+        # Skip voting if the disconnected player is a bot
+        if player.is_bot:
+            print(f"[DISCONNECT] Disconnected player is a bot, skipping vote")
+            player.is_connected = False
+            db.session.commit()
+            game_code = player.game.code
+            emit('player_disconnected', {
+                'player_id': player.id,
+                'player_name': player.name,
+                'is_host': False
+            }, room=game_code)
+            print(f"[DISCONNECT] ===== END DISCONNECT (bot) =====\n")
+            return
+        
+        player_id = player.id  # Save for later
+        game_code = player.game.code
+        is_host = player.is_host
+        
         player.is_connected = False
         db.session.commit()
 
-        code = player.game.code
-        game = player.game
+        game = Game.query.filter_by(code=game_code).first()  # Re-query game to get fresh state
+        if not game:
+            print(f"[DISCONNECT] Game not found")
+            return
+        
+        print(f"[DISCONNECT] Game: {game_code}, Status: {game.status}, Round: {game.round_number}")
+        print(f"[DISCONNECT] Player is_host: {is_host}")
 
         # Notify others in the room
         emit('player_disconnected', {
-            'player_id': player.id,
-            'player_name': player.name
-        }, room=code)
+            'player_id': player_id,
+            'player_name': player.name,
+            'is_host': is_host
+        }, room=game_code)
 
-        # Check if any non-bot players remain
-        non_bot_players = [p for p in game.players if not p.is_bot and p.is_connected]
-        if not non_bot_players:
-            # End the game if no non-bot players remain
+        # Check if any other non-bot players remain (regardless of connection)
+        remaining_non_bot_all = Player.query.filter_by(game_id=game.id).filter(
+            Player.is_bot == False,
+            Player.id != player_id
+        ).all()
+
+        # Connected non-bot players (used for voters)
+        non_bot_players = Player.query.filter_by(game_id=game.id).filter(
+            Player.is_bot == False,
+            Player.is_connected == True,
+            Player.id != player_id
+        ).all()
+
+        print(f"[DISCONNECT] Non-bot remaining (all): {len(remaining_non_bot_all)}")
+        print(f"[DISCONNECT] Non-bot connected (voters): {len(non_bot_players)}")
+        for p in remaining_non_bot_all:
+            print(f"  - {p.name} (id: {p.id}, connected: {p.is_connected})")
+        
+        if not remaining_non_bot_all:
+            # End the game if no other non-bot players remain
+            print(f"[DISCONNECT] No non-bot players remain, ending game")
             game.status = 'finished'
             db.session.commit()
             emit('game_ended', {
-                'reason': 'No non-bot players remain. Game closed.'
-            }, room=code)
+                'reason': 'No non-bot players remain. Game closed.',
+                'redirect': True
+            }, room=game_code)
+            print(f"[DISCONNECT] ===== END DISCONNECT =====\n")
             return
 
-        # Start a vote among non-bot players to continue or end
+        # Only trigger vote if game has started (skip waiting/lobby)
+        print(f"[DISCONNECT] Game status: {game.status}, is_playing: {game.status == 'playing'}")
+        if game.status == 'waiting':
+            print(f"[DISCONNECT] Game still waiting, no vote needed")
+            print(f"[DISCONNECT] ===== END DISCONNECT =====\n")
+            return
+
+        # Start a vote among remaining non-bot players (connected or not)
         # Store vote state in memory (could use a global dict or a better solution for production)
         if not hasattr(handle_disconnect, 'votes'):
             handle_disconnect.votes = {}
-        handle_disconnect.votes[code] = {
+        voters = [p.id for p in remaining_non_bot_all]
+        if not voters:
+            print(f"[DISCONNECT] No voters available, skipping vote")
+            print(f"[DISCONNECT] ===== END DISCONNECT =====\n")
+            return
+
+        print(f"[DISCONNECT] Starting vote with voters: {voters}")
+        handle_disconnect.votes[game_code] = {
             'votes': {},
-            'voters': [p.id for p in game.players if not p.is_bot and p.is_connected],
+            'voters': voters,
             'active': True
         }
         emit('disconnect_vote_start', {
             'disconnected_player': player.name,
-            'voters': handle_disconnect.votes[code]['voters']
-        }, room=code)
+            'voters': voters,
+            'is_host': is_host
+        }, room=game_code)
+        print(f"[DISCONNECT] ===== END DISCONNECT =====\n")
 
 # SocketIO event for voting
 @socketio.on('disconnect_vote')
@@ -101,9 +165,21 @@ def handle_disconnect_vote(data):
         if game:
             game.status = 'finished'
             db.session.commit()
+            
+            # Use socketio.sleep for non-blocking delay before redirect
+            def delayed_redirect():
+                socketio.sleep(2)
+                emit('redirect_home', {}, room=code)
+            
+            # Emit game ended with redirect flag
             emit('game_ended', {
-                'reason': 'Players voted to end the game.'
+                'reason': 'Players voted to end the game.',
+                'redirect': True
             }, room=code)
+            
+            # Start background task for delayed redirect
+            socketio.start_background_task(delayed_redirect)
+            
         votes_state['active'] = False
         return
 
@@ -149,14 +225,16 @@ def handle_join_room(data):
     # Find the player and mark as connected
     player = game.players.filter_by(session_id=session_id).first()
     if player:
+        was_disconnected = not player.is_connected  # Check if player was disconnected
         player.is_connected = True
         db.session.commit()
         
-        # Notify others that player connected
-        emit('player_connected', {
-            'player_id': player.id,
-            'player_name': player.name
-        }, room=code, include_self=False)
+        # Only notify about "reconnected" if player was actually disconnected before
+        if was_disconnected:
+            emit('player_connected', {
+                'player_id': player.id,
+                'player_name': player.name
+            }, room=code, include_self=False)
     
     # Send current game state to the joining client, showing their own cards
     player_id = player.id if player else None
@@ -494,6 +572,9 @@ def handle_place_card(data):
         'discarded_value': old_card_value
     }, room=code)
     
+    # Emit game state immediately
+    emit_personalized_game_state(game)
+    
     # Check if round should end
     if check_round_end(game, player):
         handle_round_end(game, code)
@@ -508,8 +589,6 @@ def handle_place_card(data):
         # If next player is a bot, process their turn
         if next_player.is_bot:
             process_bot_turn(game, next_player)
-    
-    emit_personalized_game_state(game)
 
 
 @socketio.on('discard_held')
@@ -597,6 +676,9 @@ def handle_reveal_card(data):
         'revealed_value': revealed_value
     }, room=code)
     
+    # Emit game state immediately
+    emit_personalized_game_state(game)
+    
     # Check if round should end
     if check_round_end(game, player):
         handle_round_end(game, code)
@@ -611,8 +693,6 @@ def handle_reveal_card(data):
         # If next player is a bot, process their turn
         if next_player.is_bot:
             process_bot_turn(game, next_player)
-    
-    emit_personalized_game_state(game)
 
 
 def handle_round_end(game, code):
@@ -646,23 +726,85 @@ def handle_round_end(game, code):
             'winner': winner.name,
             'final_scores': scores
         }, room=code)
+    else:
+        # Start ready timer immediately
+        start_ready_timer(game, code)
 
 
-@socketio.on('next_round')
-def handle_next_round(data):
-    """Host starts the next round."""
+@socketio.on('player_ready')
+def handle_player_ready(data):
+    """Player marks themselves as ready for next round."""
     code = data.get('code', '').upper()
-    session_id = get_session_id()
+    player_id = data.get('player_id')
     
     game = Game.query.filter_by(code=code).first()
     if not game:
         emit('error', {'message': 'Game not found'})
         return
     
-    player = game.players.filter_by(session_id=session_id).first()
-    if not player or not player.is_host:
-        emit('error', {'message': 'Only the host can start next round'})
-        return
+    # Initialize ready state if not exists
+    if not hasattr(handle_player_ready, 'ready_state'):
+        handle_player_ready.ready_state = {}
+    
+    if code not in handle_player_ready.ready_state:
+        return  # Timer should have been started already
+    
+    ready_state = handle_player_ready.ready_state[code]
+    ready_state['ready_players'].add(player_id)
+    
+    # Get ready player names
+    ready_names = [ready_state['player_names'].get(pid) for pid in ready_state['ready_players']]
+    
+    # Broadcast ready status
+    emit('ready_status_update', {
+        'ready_players': ready_names,
+        'total_players': ready_state['total_players'],
+        'timer_seconds': None
+    }, room=code)
+    
+    # Check if all players are ready - start immediately
+    if len(ready_state['ready_players']) >= ready_state['total_players']:
+        start_next_round(game, code)
+
+
+def start_ready_timer(game, code):
+    """Start the ready timer for next round."""
+    # Initialize ready state if not exists
+    if not hasattr(handle_player_ready, 'ready_state'):
+        handle_player_ready.ready_state = {}
+    
+    # Setup ready tracking with game's turn timer setting
+    non_bot_players = [p for p in game.players.all() if not p.is_bot]
+    timer_duration = game.turn_timer if game.turn_timer > 0 else 30
+    handle_player_ready.ready_state[code] = {
+        'ready_players': set(),
+        'total_players': len(non_bot_players),
+        'player_names': {p.id: p.name for p in non_bot_players},
+        'timer_duration': timer_duration
+    }
+    
+    # Broadcast initial ready status with timer
+    emit('ready_status_update', {
+        'ready_players': [],
+        'total_players': len(non_bot_players),
+        'timer_seconds': timer_duration
+    }, room=code)
+    
+    # Schedule auto-start after timer duration
+    def auto_start_round():
+        socketio.sleep(timer_duration)
+        # Check if still needed (not all ready yet)
+        if hasattr(handle_player_ready, 'ready_state') and code in handle_player_ready.ready_state:
+            start_next_round(game, code)
+    
+    socketio.start_background_task(auto_start_round)
+
+
+def start_next_round(game, code):
+    """Start the next round."""
+    # Clear ready state
+    if hasattr(handle_player_ready, 'ready_state') and code in handle_player_ready.ready_state:
+        del handle_player_ready.ready_state[code]
     
     # Initialize new round
     from app.game.logic import initialize_game
@@ -681,13 +823,27 @@ def handle_turn_timeout(data):
     code = data.get('code', '').upper()
     session_id = get_session_id()
     
+    print(f"[TIMEOUT] Received timeout for code={code}, session_id={session_id}")
+    
     game = Game.query.filter_by(code=code).first()
     if not game or game.status != 'playing':
+        print(f"[TIMEOUT] Game not found or not playing: {game.status if game else 'None'}")
         return
     
+    # Get the current player who should act (not by session_id, by game state)
+    current_player = game.get_current_player()
+    if not current_player:
+        print(f"[TIMEOUT] No current player found")
+        return
+    
+    # If the timeout is from the current player's session, process it
+    # OR if current player is the one from this session
     player = game.players.filter_by(session_id=session_id).first()
     if not player:
+        print(f"[TIMEOUT] Player not found for session {session_id}")
         return
+    
+    print(f"[TIMEOUT] Processing timeout for player {player.name}")
     
     import random
     from app.game.logic import draw_card, place_card, discard_held_card, reveal_card, check_round_end, next_turn
@@ -699,6 +855,7 @@ def handle_turn_timeout(data):
     # This happens for ALL players simultaneously, so no turn check needed
     revealed_count = sum(1 for c in cards if c.get('revealed') and not c.get('eliminated'))
     if revealed_count < 2:
+        print(f"[TIMEOUT] Initial reveal phase - revealed {revealed_count}/2")
         # Auto-reveal random cards to complete initial reveal
         cards_to_reveal = 2 - revealed_count
         for _ in range(cards_to_reveal):
@@ -739,9 +896,11 @@ def handle_turn_timeout(data):
                 process_bot_turn(game, current)
         return
     
+    print(f"[TIMEOUT] Normal gameplay - held_card={player.held_card}")
+    
     # For normal gameplay, verify it's actually this player's turn
-    current = game.get_current_player()
-    if not current or current.id != player.id:
+    if current_player.id != player.id:
+        print(f"[TIMEOUT] Not current player's turn. Current: {current_player.id}, Requesting: {player.id}")
         return
     
     # If player has a held card, place it on random unrevealed card
@@ -819,14 +978,20 @@ def handle_turn_timeout(data):
 
 def process_bot_turn(game, bot):
     """Process a bot's turn with difficulty-based AI."""
-    import time
     from app.game.logic import draw_card, place_card, discard_held_card, reveal_card, check_round_end, next_turn
     import random
     
-    # Small delay to simulate thinking
-    time.sleep(1)
-    
     code = game.code
+    
+    # Emit bot thinking indicator
+    emit('bot_thinking', {
+        'player_id': bot.id,
+        'player_name': bot.name
+    }, room=code, namespace='/')
+    
+    # Small delay to simulate thinking (non-blocking)
+    socketio.sleep(1.5)
+    
     difficulty = bot.bot_difficulty or 'medium'
     
     cards = bot.get_cards()
@@ -961,7 +1126,7 @@ def process_bot_turn(game, bot):
         'from_discard': take_from_discard
     }, room=code, namespace='/')
     
-    time.sleep(0.5)
+    socketio.sleep(0.5)
     
     # Refresh cards after draw
     cards = bot.get_cards()

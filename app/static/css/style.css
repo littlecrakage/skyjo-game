@@ -46,6 +46,29 @@ body {
     min-height: 100vh;
 }
 
+/* ===== Navbar ===== */
+.navbar {
+    background-color: var(--card-bg);
+    border-bottom: 1px solid var(--border);
+    padding: var(--spacing-md) var(--spacing-xl);
+    display: flex;
+    gap: var(--spacing-lg);
+    align-items: center;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.navbar-link {
+    color: var(--text-color);
+    text-decoration: none;
+    font-weight: 500;
+    font-size: var(--font-size-base);
+    transition: color 0.2s ease;
+}
+
+.navbar-link:hover {
+    color: var(--primary);
+}
+
 /* ===== Language Switcher ===== */
 .lang-switcher {
     position: fixed;

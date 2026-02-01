@@ -7,6 +7,7 @@ var TRANSLATIONS = {
         copied: "Copied!",
         cancel: "Cancel",
         loading: "Loading...",
+        home: "Home",
         
         // Home page
         home_title: "Skyjo",
@@ -92,6 +93,11 @@ var TRANSLATIONS = {
         game_over: "Game Over!",
         winner: "Winner",
         next_round: "Next Round",
+        ready: "Ready",
+        you_ready: "You are ready!",
+        waiting_ready: "Waiting for players to be ready...",
+        auto_start: "Auto-start in",
+        players_ready: "players ready",
         started: "started",
         back_home: "Back to Home",
         final_scores: "Final Scores",
@@ -102,6 +108,7 @@ var TRANSLATIONS = {
         reconnected: "reconnected",
         connection_lost: "Connection lost. Reconnecting...",
         game_starting: "Game is starting!",
+        bot_thinking: "is thinking",
         timed_out: "timed out - auto action!",
         
         // Game Log
@@ -125,6 +132,7 @@ var TRANSLATIONS = {
         copied: "Copié !",
         cancel: "Annuler",
         loading: "Chargement...",
+        home: "Accueil",
         
         // Home page
         home_title: "Skyjo",
@@ -209,8 +217,11 @@ var TRANSLATIONS = {
         round_over: "Fin de manche !",
         game_over: "Partie terminée !",
         winner: "Gagnant",
-        next_round: "Manche suivante",
-        started: "commencée",
+        next_round: "Manche suivante",        ready: "Prêt",
+        you_ready: "Vous êtes prêt !",
+        waiting_ready: "En attente des joueurs...",
+        auto_start: "Démarrage auto dans",
+        players_ready: "joueurs prêts",        started: "commencée",
         back_home: "Retour à l'accueil",
         final_scores: "Scores finaux",
         
@@ -220,6 +231,7 @@ var TRANSLATIONS = {
         reconnected: "s'est reconnecté",
         connection_lost: "Connexion perdue. Reconnexion...",
         game_starting: "La partie commence !",
+        bot_thinking: "réfléchit",
         timed_out: "temps écoulé - action auto !",
         
         // Game Log

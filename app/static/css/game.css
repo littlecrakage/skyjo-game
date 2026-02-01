@@ -524,6 +524,40 @@
     margin: var(--spacing-md) 0;
 }
 
+.ready-status {
+    margin: var(--spacing-lg) 0;
+    padding: var(--spacing-md);
+    background: #f0f9ff;
+    border-radius: var(--radius-md);
+}
+
+.ready-timer {
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--primary);
+    margin: var(--spacing-sm) 0;
+}
+
+.ready-players-list {
+    margin-top: var(--spacing-md);
+}
+
+.ready-names {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-sm);
+    justify-content: center;
+    margin-top: var(--spacing-sm);
+}
+
+.ready-player {
+    background: #d1fae5;
+    color: #065f46;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+}
+
 /* ===== Responsive: Hide log on small screens ===== */
 @media (max-width: 1024px) {
     .game-log {

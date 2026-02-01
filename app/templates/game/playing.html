@@ -107,8 +107,13 @@
             <div id="round-scores" class="round-scores">
                 <!-- Rendered via JS -->
             </div>
-            <button id="next-round-btn" class="btn btn-primary" style="display: none;" data-i18n="next_round">
-                Next Round
+            <div id="ready-status" class="ready-status" style="display: none;">
+                <p id="ready-message" data-i18n="waiting_ready">Waiting for players to be ready...</p>
+                <div id="ready-timer" class="ready-timer"></div>
+                <div id="ready-players" class="ready-players-list"></div>
+            </div>
+            <button id="ready-btn" class="btn btn-primary" style="display: none;" data-i18n="ready">
+                Ready
             </button>
         </div>
     </div>
@@ -164,10 +169,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     showNotification('Now click a face-down card to reveal it');
                 });
 
-                // Next round button
-                document.getElementById('next-round-btn').addEventListener('click', function() {
-                    socket.emit('next_round', { code: GAME_CODE });
-                    document.getElementById('round-end-overlay').style.display = 'none';
+                // Ready button for next round
+                document.getElementById('ready-btn').addEventListener('click', function() {
+                    socket.emit('player_ready', { code: GAME_CODE, player_id: PLAYER_ID });
+                    document.getElementById('ready-btn').style.display = 'none';
+                    showNotification(t('you_ready'), 'success');
                 });
             window.handleCardClick = handleCardClick;
         // ============ Game Actions ============
@@ -222,6 +228,8 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('DOMContentLoaded running');
     // Debug: log socket connection status
     var socket = io();
+    // Store socket globally so it's accessible from all callbacks
+    window.globalSocket = socket;
     socket.on('connect', function() {
         console.log('[DEBUG] Socket connected:', socket.id);
         // Join the game room after connecting
@@ -242,8 +250,9 @@ document.addEventListener('DOMContentLoaded', function() {
     var disconnectVoteTitle = document.getElementById('disconnect-vote-title');
     var disconnectVoteMessage = document.getElementById('disconnect-vote-message');
 
-    function showDisconnectVote(disconnectedPlayer, voters) {
-        disconnectVoteTitle.textContent = disconnectedPlayer + ' disconnected';
+    function showDisconnectVote(disconnectedPlayer, voters, isHost) {
+        var hostText = isHost ? ' (host)' : '';
+        disconnectVoteTitle.textContent = disconnectedPlayer + hostText + ' disconnected';
         disconnectVoteMessage.textContent = 'Do you want to continue the game without them, or end the game?';
         disconnectVoteModal.style.display = 'flex';
         disconnectVoteActive = true;
@@ -292,14 +301,48 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
         console.log('[DEBUG] myPlayer:', myPlayer);
+        
+        // Update revealed cards count if in initial reveal phase
+        if (myPlayer && gamePhase === 'initial_reveal') {
+            var actualRevealedCount = myPlayer.revealed_count || 0;
+            if (actualRevealedCount !== revealedCardsCount) {
+                console.log('Updating revealedCardsCount from', revealedCardsCount, 'to', actualRevealedCount);
+                revealedCardsCount = actualRevealedCount;
+                if (revealedCardsCount >= 2) {
+                    stopRevealTimer();
+                }
+            }
+        }
+        
         updateUI();
     });
     socket.on('disconnect_vote_start', function(data) {
-        if (IS_SPECTATOR || !myPlayer || myPlayer.is_bot || !myPlayer.is_connected) return;
-        if (data.voters && data.voters.indexOf(PLAYER_ID) !== -1) {
-            showDisconnectVote(data.disconnected_player, data.voters);
+        console.log('[VOTE] Disconnect vote started:', data);
+        console.log('[VOTE] PLAYER_ID:', PLAYER_ID, 'myPlayer:', myPlayer, 'IS_SPECTATOR:', IS_SPECTATOR);
+        
+        if (IS_SPECTATOR || !myPlayer) {
+            console.log('[VOTE] Skipping: spectator or no player');
+            return;
         }
-        addLogEntry('<strong>' + escapeHtml(data.disconnected_player) + '</strong> disconnected. Vote to continue or end the game.', 'warning');
+        if (myPlayer.is_bot) {
+            console.log('[VOTE] Skipping: is_bot');
+            return;
+        }
+        var liveSocket = window.globalSocket || socket;
+        if (!liveSocket || !liveSocket.connected) {
+            console.log('[VOTE] Skipping: socket not connected');
+            return;
+        }
+        
+        console.log('[VOTE] Voters:', data.voters, 'PLAYER_ID:', PLAYER_ID);
+        if (data.voters && data.voters.indexOf(PLAYER_ID) !== -1) {
+            console.log('[VOTE] Showing vote modal for player:', PLAYER_ID);
+            showDisconnectVote(data.disconnected_player, data.voters, data.is_host);
+        } else {
+            console.log('[VOTE] Player not in voters list');
+        }
+        var hostText = data.is_host ? ' (host)' : '';
+        addLogEntry('<strong>' + escapeHtml(data.disconnected_player) + hostText + '</strong> disconnected. Vote to continue or end the game.', 'warning');
     });
     socket.on('disconnect_vote_result', function(data) {
         if (data.result === 'continue') {
@@ -315,6 +358,14 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     socket.on('game_ended', function(data) {
         hideDisconnectVote();
+        
+        // If redirect flag is set, show message and redirect after 2 seconds
+        if (data.redirect) {
+            showNotification(data.reason || 'Game ended.', 'info');
+            setTimeout(function() {
+                window.location.href = "{{ url_for('main.index') }}";
+            }, 2000);
+        }
     });
     socket.on('card_drawn', function(data) {
         if (data.player_id === PLAYER_ID) {
@@ -333,6 +384,14 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('card_revealed', function(data) {
         var revealedVal = data.revealed_value !== undefined ? ' [' + data.revealed_value + ']' : '';
         addLogEntry('<strong>' + escapeHtml(data.player_name) + '</strong> ' + t('revealed_card') + revealedVal, 'action');
+        
+        // Track revealed cards for initial reveal phase
+        if (gamePhase === 'initial_reveal' && data.player_id === PLAYER_ID) {
+            revealedCardsCount++;
+            if (revealedCardsCount >= 2) {
+                stopRevealTimer();
+            }
+        }
     });
     socket.on('card_discarded', function(data) {
         var discardedVal = data.discarded_value !== undefined ? ' [' + data.discarded_value + ']' : '';
@@ -357,23 +416,51 @@ document.addEventListener('DOMContentLoaded', function() {
         addLogEntry('🏁 ' + t('round_over'), 'round');
         showRoundEnd(data.scores, data.trigger_player);
     });
+    socket.on('ready_status_update', function(data) {
+        updateReadyPlayers(data.ready_players, data.total_players);
+        if (data.timer_seconds !== null && data.timer_seconds !== undefined) {
+            startReadyTimer(data.timer_seconds);
+        }
+    });
     socket.on('round_started', function(data) {
         // Hide round end overlay and reset to initial reveal phase
         document.getElementById('round-end-overlay').style.display = 'none';
+        document.getElementById('ready-btn').style.display = 'none';
+        document.getElementById('ready-status').style.display = 'none';
+        clearInterval(readyTimerInterval);
         gamePhase = 'initial_reveal';
         turnPhase = 'reveal';
+        revealedCardsCount = 0;
         showPhaseOverlay(t('reveal_2_cards'), t('reveal_2_cards_desc'));
         addLogEntry('🆕 ' + t('round') + ' ' + data.round_number + ' ' + t('started'), 'round');
+        
+        // Start reveal timer
+        if (TURN_TIMER > 0) {
+            startRevealTimer(TURN_TIMER);
+        }
     });
     socket.on('game_ended', function(data) {
-        addLogEntry('🏆 ' + t('game_over') + ' - ' + t('winner') + ': <strong>' + escapeHtml(data.winner) + '</strong>', 'winner');
-        showGameEnd(data.winner, data.final_scores);
+        if (data.winner) {
+            addLogEntry('🏆 ' + t('game_over') + ' - ' + t('winner') + ': <strong>' + escapeHtml(data.winner) + '</strong>', 'winner');
+            showGameEnd(data.winner, data.final_scores);
+        } else if (data.redirect) {
+            // Already handled by first game_ended handler
+        }
     });
     socket.on('initial_reveal_complete', function(data) {
         if (data.all_ready) {
             gamePhase = 'playing';
             hidePhaseOverlay();
+            stopRevealTimer();
         }
+    });
+    socket.on('redirect_home', function(data) {
+        // Redirect to home page
+        window.location.href = "{{ url_for('main.index') }}";
+    });
+    socket.on('bot_thinking', function(data) {
+        // Show visual indicator that bot is thinking
+        addLogEntry('🤖 ' + escapeHtml(data.player_name) + ' ' + t('bot_thinking') + '...', 'bot-action');
     });
     // ...rest of your JS code that uses socket...
 });
@@ -556,6 +643,14 @@ document.addEventListener('DOMContentLoaded', function() {
             if (myPlayer && myPlayer.revealed_count < 2) {
                 gamePhase = 'initial_reveal';
                 showPhaseOverlay(t('reveal_cards'), t('click_reveal'));
+                
+                // Start reveal timer if not already started
+                if (TURN_TIMER > 0 && !revealTimerInterval) {
+                    revealedCardsCount = myPlayer.revealed_count || 0;
+                    if (revealedCardsCount < 2) {
+                        startRevealTimer(TURN_TIMER);
+                    }
+                }
             } else {
                 gamePhase = 'playing';
                 hidePhaseOverlay();
@@ -589,6 +684,10 @@ document.addEventListener('DOMContentLoaded', function() {
         return gameState && gameState.current_player_id === playerId;
     }
     
+    var readyTimerInterval = null;
+    var revealTimerInterval = null;
+    var revealedCardsCount = 0;
+    
     function showRoundEnd(scores, triggerPlayer) {
         var overlay = document.getElementById('round-end-overlay');
         var scoresDiv = document.getElementById('round-scores');
@@ -606,9 +705,72 @@ document.addEventListener('DOMContentLoaded', function() {
         
         overlay.style.display = 'flex';
         
-        if (myPlayer && myPlayer.is_host) {
-            document.getElementById('next-round-btn').style.display = 'block';
+        // Show ready button for non-bot players
+        if (myPlayer && !myPlayer.is_bot && !IS_SPECTATOR) {
+            document.getElementById('ready-btn').style.display = 'block';
+            document.getElementById('ready-status').style.display = 'block';
         }
+    }
+    
+    function startReadyTimer(seconds) {
+        var timerDiv = document.getElementById('ready-timer');
+        var remaining = seconds;
+        timerDiv.textContent = t('auto_start') + ': ' + remaining + 's';
+        
+        clearInterval(readyTimerInterval);
+        readyTimerInterval = setInterval(function() {
+            remaining--;
+            timerDiv.textContent = t('auto_start') + ': ' + remaining + 's';
+            
+            if (remaining <= 0) {
+                clearInterval(readyTimerInterval);
+                readyTimerInterval = null;
+            }
+        }, 1000);
+    }
+    
+    function startRevealTimer(seconds) {
+        if (!myPlayer || myPlayer.is_bot || IS_SPECTATOR) return;
+        
+        revealedCardsCount = 0;
+        var timerDiv = document.getElementById('phase-message');
+        var remaining = seconds;
+        var originalMessage = t('click_reveal');
+        
+        clearInterval(revealTimerInterval);
+        revealTimerInterval = setInterval(function() {
+            remaining--;
+            timerDiv.textContent = originalMessage + ' (' + remaining + 's)';
+            
+            if (remaining <= 0) {
+                clearInterval(revealTimerInterval);
+                revealTimerInterval = null;
+                // Auto-reveal random cards if not done - use turn_timeout which handles this
+                console.log('Timer expired, emitting turn_timeout for auto-reveal');
+                // Use the global socket that was created at line 230
+                if (typeof window.globalSocket !== 'undefined') {
+                    window.globalSocket.emit('turn_timeout', { code: GAME_CODE });
+                } else {
+                    console.error('Global socket not available');
+                }
+            }
+        }, 1000);
+    }
+    
+    function stopRevealTimer() {
+        clearInterval(revealTimerInterval);
+        revealTimerInterval = null;
+    }
+    
+    function updateReadyPlayers(readyPlayers, totalPlayers) {
+        var readyDiv = document.getElementById('ready-players');
+        var html = '<p>' + readyPlayers.length + '/' + totalPlayers + ' ' + t('players_ready') + '</p>';
+        html += '<div class="ready-names">';
+        for (var i = 0; i < readyPlayers.length; i++) {
+            html += '<span class="ready-player">✓ ' + escapeHtml(readyPlayers[i]) + '</span>';
+        }
+        html += '</div>';
+        readyDiv.innerHTML = html;
     }
     
     function showGameEnd(winner, scores) {
@@ -637,9 +799,10 @@ document.addEventListener('DOMContentLoaded', function() {
         content.innerHTML = html;
         overlay.style.display = 'flex';
         
-        // Hide next round button
-        var nextBtn = document.getElementById('next-round-btn');
-        if (nextBtn) nextBtn.style.display = 'none';
+        // Hide ready button and status for game end
+        document.getElementById('ready-btn').style.display = 'none';
+        document.getElementById('ready-status').style.display = 'none';
+        clearInterval(readyTimerInterval);
     }
     
     function startTimer() {
@@ -677,8 +840,12 @@ document.addEventListener('DOMContentLoaded', function() {
             if (remaining <= 0) {
                 clearInterval(timerInterval);
                 console.log('Timer reached 0, emitting turn_timeout');
-                // Auto-action on timeout
-                socket.emit('turn_timeout', { code: GAME_CODE });
+                // Auto-action on timeout - use global socket
+                if (typeof window.globalSocket !== 'undefined') {
+                    window.globalSocket.emit('turn_timeout', { code: GAME_CODE });
+                } else {
+                    console.error('Global socket not available');
+                }
             }
         }, 1000);
         
