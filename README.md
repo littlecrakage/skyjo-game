@@ -59,7 +59,7 @@
 - [x] **Timer enforcement** - Auto-skip turn when timer runs out (auto-draw + place on random card)
 - [x] **Disconnection handling** - Handle player disconnect gracefully
 - [x] **Navbar/menu**  to abandon game, back on the home page, link to the github
-- [ ] **Deployment to Render** - Get the game online
+- [x] **Deployment to Render** - Get the game online (see DEPLOYMENT.md)
 - [x] **Delete Deserted Game** - Game that are empty of non-bot player should be deleted
 
 ### Medium Priority
