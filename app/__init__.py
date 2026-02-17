@@ -27,6 +27,7 @@ def create_app(config_name='default'):
     from app.routes.game import game_bp
     app.register_blueprint(main_bp)
     app.register_blueprint(game_bp)
+    app.register_blueprint(webhook_bp)
     
     # Import socket events to register them
     from app.routes import socket_events  # noqa
