@@ -94,3 +94,4 @@
 ---
 
 *Last updated: January 25, 2026*
+# Auto-deployment enabled

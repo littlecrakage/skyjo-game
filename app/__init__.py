@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_socketio import SocketIO
 from config import config
 from apscheduler.schedulers.background import BackgroundScheduler
+from app.routes.webhook import webhook_bp
 
 # Initialize extensions (without app)
 db = SQLAlchemy()
