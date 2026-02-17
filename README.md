@@ -59,7 +59,7 @@
 - [x] **Timer enforcement** - Auto-skip turn when timer runs out (auto-draw + place on random card)
 - [x] **Disconnection handling** - Handle player disconnect gracefully
 - [x] **Navbar/menu**  to abandon game, back on the home page, link to the github
-- [ ] **Deployment to Render** - Get the game online
+- [x] **Deployment to Hetzner** - Get the game online
 - [x] **Delete Deserted Game** - Game that are empty of non-bot player should be deleted
 
 ### Medium Priority
@@ -76,6 +76,7 @@
 - [ ] Game history / statistics
 - [ ] Player avatars
 - [ ] Chat system (optional)
+- [x] Add Tipping system like Ko-fi
 
 ---
 
@@ -93,6 +94,4 @@
 
 ---
 
-*Last updated: January 25, 2026*
-# Auto-deployment enabled
-# Testing HTTPS webhook
+*Last updated: Feb 17, 2026*
