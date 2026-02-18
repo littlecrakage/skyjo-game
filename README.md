@@ -65,7 +65,7 @@
 ### Medium Priority
 - [x] Kick/remove player option for host
 - [ ] Reconnection support (rejoin with session)
-- [ ] Mobile responsive layout improvements
+- [x] Mobile responsive layout improvements
 
 ### Low Priority / Nice-to-Have
 - [x] Make it easy to spot when not playing by greying out the board
