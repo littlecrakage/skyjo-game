@@ -23,7 +23,7 @@
     
     <script src="{{ url_for('static', filename='js/translations.js') }}"></script>
     {% block scripts %}{% endblock %}
-    {% if not hide_kofi %}
+    {% if request.endpoint != 'game.room' %}
     <script src='https://storage.ko-fi.com/cdn/scripts/overlay-widget.js'></script>
     <script>
     kofiWidgetOverlay.draw('crakage', {
