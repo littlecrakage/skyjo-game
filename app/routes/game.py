@@ -128,7 +128,6 @@ def join():
 
 @game_bp.route('/room/<code>')
 def room(code):
-    print(f"DEBUG Endpoint: {request.endpoint}")
     """Game room page."""
     game = Game.query.filter_by(code=code.upper()).first()
     
