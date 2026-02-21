@@ -478,26 +478,26 @@ def handle_rematch_response(data):
 
         # If host did not accept, rematch fails
         if not current_state['host_id'] or current_state['host_id'] not in current_state['accepted']:
-            emit('rematch_failed', {
+            socketio.emit('rematch_failed', {
                 'reason': 'Rematch failed: host did not accept.'
-            }, room=code)
+            }, to=code)
             # Redirect everyone to home
-            emit('game_ended', {
+            socketio.emit('game_ended', {
                 'reason': 'Rematch failed: host did not accept.',
                 'redirect': True
-            }, room=code)
+            }, to=code)
             handle_rematch_response.state.pop(code, None)
             return
 
         accepted_ids = list(current_state['accepted'])
         if not accepted_ids:
-            emit('rematch_failed', {
+            socketio.emit('rematch_failed', {
                 'reason': 'Rematch failed: no players accepted.'
-            }, room=code)
-            emit('game_ended', {
+            }, to=code)
+            socketio.emit('game_ended', {
                 'reason': 'Rematch failed: no players accepted.',
                 'redirect': True
-            }, room=code)
+            }, to=code)
             handle_rematch_response.state.pop(code, None)
             return
 
@@ -528,16 +528,16 @@ def handle_rematch_response(data):
 
         # Notify accepted players to join new game
         for p in accepted_players:
-            emit('rematch_created', {
+            socketio.emit('rematch_created', {
                 'code': new_game.code
-            }, room=p.session_id)
+            }, to=p.session_id)
 
         # Redirect declined or no-response players to home
         for p in game.players.filter_by(is_bot=False).all():
             if p.id not in accepted_ids:
-                emit('rematch_declined', {
+                socketio.emit('rematch_declined', {
                     'reason': 'Rematch declined.'
-                }, room=p.session_id)
+                }, to=p.session_id)
 
         handle_rematch_response.state.pop(code, None)
 
