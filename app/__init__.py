@@ -42,7 +42,7 @@ def create_app(config_name='default'):
         # Start the scheduler with cleanup job if not already running
         if not scheduler.running:
             from app.routes.socket_events import cleanup_empty_games
-            scheduler.add_job(cleanup_empty_games, 'interval', minutes=20, id='cleanup_games', replace_existing=True)
+            scheduler.add_job(cleanup_empty_games, 'interval', minutes=20, id='cleanup_games', replace_existing=True, args=[app])
             scheduler.start()
             print("[CLEANUP] Scheduler started with cleanup job (runs every 20 minutes)")
     
