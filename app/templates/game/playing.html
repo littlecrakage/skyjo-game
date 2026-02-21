@@ -853,6 +853,22 @@ document.addEventListener('DOMContentLoaded', function() {
         content.innerHTML = html;
         overlay.style.display = 'flex';
 
+        // Auto-redirect to home if no rematch decision within 20 seconds
+        var autoRedirectTimer = setTimeout(function() {
+            window.location.href = "{{ url_for('main.index') }}";
+        }, 20000);
+
+        // Cancel auto-redirect if any rematch event arrives
+        var cancelAutoRedirect = function() {
+            clearTimeout(autoRedirectTimer);
+        };
+        var liveSocketRef = window.globalSocket || socket;
+        if (liveSocketRef) {
+            liveSocketRef.on('rematch_created', cancelAutoRedirect);
+            liveSocketRef.on('rematch_failed', cancelAutoRedirect);
+            liveSocketRef.on('rematch_declined', cancelAutoRedirect);
+        }
+
         var acceptBtn = document.getElementById('rematch-accept');
         var declineBtn = document.getElementById('rematch-decline');
         if (acceptBtn) {
