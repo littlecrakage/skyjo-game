@@ -1556,13 +1556,8 @@ def broadcast_game_update(game):
         emit('game_state', game_dict, room=p.session_id, namespace='/')
 
 
-def cleanup_empty_games():
+def cleanup_empty_games(app):
     """Background task to delete games with no non-bot players and inactive lobbies."""
-    from app import create_app
-    
-    # Create app context for the background task
-    app = create_app()
-    
     with app.app_context():
         print(f"\n[CLEANUP] ===== CLEANUP RUN at {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} =====")
         
