@@ -661,6 +661,10 @@
     .table-layout {
         grid-template-columns: 1fr 1.5fr 1fr;
     }
+
+    .table-layout {
+        grid-template-columns: 1fr 1.5fr 1fr;
+    }
 }
 
 /* ===== Mobile: single-opponent carousel layout ===== */
@@ -866,5 +870,23 @@
     }
     .mobile-recenter-btn.visible {
         display: block;
+    }
+
+    .table-layout {
+        grid-template-columns: auto 1fr auto;
+        gap: var(--spacing-sm);
+    }
+
+    .seat-left .opponent,
+    .seat-right .opponent,
+    .seat-bottom-left .opponent,
+    .seat-bottom-right .opponent {
+        min-width: 100px;
+    }
+
+    .card-grid-small .card {
+        width: 24px;
+        height: 34px;
+        font-size: 10px;
     }
 }
