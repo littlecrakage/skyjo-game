@@ -123,7 +123,8 @@ var TRANSLATIONS = {
         // Scores
         round_score: "Round",
         total_score: "Total",
-        spectator: "Spectator"
+        spectator: "Spectator",
+        my_cards: "My Cards ↓"
     },
     fr: {
         // Common
@@ -246,7 +247,8 @@ var TRANSLATIONS = {
         // Scores
         round_score: "Manche",
         total_score: "Total",
-        spectator: "Spectateur"
+        spectator: "Spectateur",
+        my_cards: "Mes Cartes ↓"
     }
 };
 
