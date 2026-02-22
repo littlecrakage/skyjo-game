@@ -48,6 +48,16 @@
 
     <!-- Main Game Area -->
     <div class="game-area">
+        <!-- Mobile Opponent Carousel (hidden on desktop) -->
+        <div id="mobile-opponent-carousel" class="mobile-carousel">
+            <button id="carousel-prev" class="carousel-btn carousel-prev" aria-label="Previous">&#8249;</button>
+            <div id="mobile-opponent-display" class="mobile-opponent-display">
+                <!-- Filled by JS -->
+            </div>
+            <button id="carousel-next" class="carousel-btn carousel-next" aria-label="Next">&#8250;</button>
+            <div class="carousel-dots" id="carousel-dots"></div>
+        </div>
+
         <div class="table-layout">
             <!-- Seat positions around the table -->
             <div id="pos-top-left" class="table-seat seat-top-left"></div>
@@ -101,6 +111,15 @@
 
             <div id="pos-bottom-right" class="table-seat seat-bottom-right"></div>
         </div>
+
+        <!-- Mobile: piles + my cards below carousel -->
+        <div id="mobile-piles" class="mobile-piles">
+            <!-- Cloned piles for mobile, filled by JS -->
+        </div>
+        <div id="mobile-my-area" class="mobile-my-area">
+            <!-- Filled by JS -->
+        </div>
+        <button id="mobile-recenter-btn" class="mobile-recenter-btn" data-i18n="my_cards">My Cards ↓</button>
     </div>
 
     <!-- Game Phase Message (non-blocking) -->
@@ -508,6 +527,15 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // ============ UI Functions ============
     
+    // Mobile detection helper
+    function isMobileView() {
+        return window.innerWidth <= 768;
+    }
+
+    // ============ Mobile Carousel State ============
+    var mobileOpponents = [];
+    var mobileCarouselIndex = 0;
+
     function updateUI() {
         if (!gameState) {
             console.log('No gameState yet');
@@ -521,6 +549,12 @@ document.addEventListener('DOMContentLoaded', function() {
             updateTurnIndicator();
             // Update isMyTurn flag
             isMyTurn = (gameState.current_player_id === PLAYER_ID && gamePhase === 'playing' && !IS_SPECTATOR);
+
+            // Mobile: re-sync piles and my-area after desktop updates
+            if (isMobileView()) {
+                updateMobilePiles();
+                updateMobileMyArea();
+            }
             
             console.log('[DEBUG] updateUI ran with gameState:', gameState);
         } catch (e) {
@@ -540,15 +574,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function updateOpponents() {
-        // All seat position IDs
-        var seatIds = ['pos-top-left', 'pos-top', 'pos-top-right', 'pos-left', 'pos-right', 'pos-bottom-left', 'pos-bottom-right'];
-
-        // Clear all seats
-        for (var s = 0; s < seatIds.length; s++) {
-            var el = document.getElementById(seatIds[s]);
-            if (el) el.innerHTML = '';
-        }
-
         // Collect opponents and find current player's turn order
         var opponents = [];
         var myTurnOrder = 0;
@@ -568,6 +593,44 @@ document.addEventListener('DOMContentLoaded', function() {
             return aOrd - bOrd;
         });
 
+        if (isMobileView()) {
+            updateMobileCarousel(opponents, myTurnOrder, totalPlayers);
+        } else {
+            updateDesktopSeats(opponents, myTurnOrder, totalPlayers);
+        }
+    }
+
+    function renderOpponentHTML(p, myTurnOrder, totalPlayers) {
+        var classes = 'opponent';
+        if (isCurrentPlayer(p.id)) classes += ' is-current';
+        if (!p.is_connected) classes += ' disconnected';
+
+        var html = '<div class="' + classes + '">';
+        html += '<div class="opponent-info">';
+        html += '<span class="opponent-name">' + escapeHtml(p.name) + (p.is_bot ? ' 🤖' : '');
+        var relOrder = ((p.turn_order !== undefined ? p.turn_order : 0) - myTurnOrder + totalPlayers) % totalPlayers;
+        html += '<span class="turn-order-badge">' + relOrder + '</span>';
+        html += '</span>';
+        html += '<span class="opponent-score">' + t('round_score') + ': ' + p.visible_score + ' | ' + t('total_score') + ': ' + p.score + '</span>';
+        if (IS_HOST && !IS_SPECTATOR) {
+            html += '<button class="btn-kick-game" onclick="kickPlayer(' + p.id + ', \'' + escapeHtml(p.name).replace(/'/g, "\\'") + '\')" title="Remove player">❌</button>';
+        }
+        html += '</div>';
+        html += '<div class="opponent-cards card-grid-small">' + renderCards(p.cards, false, p.id) + '</div>';
+        html += '</div>';
+        return html;
+    }
+
+    function updateDesktopSeats(opponents, myTurnOrder, totalPlayers) {
+        // All seat position IDs
+        var seatIds = ['pos-top-left', 'pos-top', 'pos-top-right', 'pos-left', 'pos-right', 'pos-bottom-left', 'pos-bottom-right'];
+
+        // Clear all seats
+        for (var s = 0; s < seatIds.length; s++) {
+            var el = document.getElementById(seatIds[s]);
+            if (el) el.innerHTML = '';
+        }
+
         // Map opponent count → seat positions (clockwise from player's left)
         var positionMaps = {
             1: ['pos-top'],
@@ -582,31 +645,116 @@ document.addEventListener('DOMContentLoaded', function() {
         var positions = positionMaps[opponents.length] || positionMaps[7] || seatIds;
 
         for (var i = 0; i < opponents.length && i < positions.length; i++) {
-            var p = opponents[i];
             var seatEl = document.getElementById(positions[i]);
             if (!seatEl) continue;
-
-            var classes = 'opponent';
-            if (isCurrentPlayer(p.id)) classes += ' is-current';
-            if (!p.is_connected) classes += ' disconnected';
-
-            var html = '<div class="' + classes + '">';
-            html += '<div class="opponent-info">';
-            html += '<span class="opponent-name">' + escapeHtml(p.name) + (p.is_bot ? ' 🤖' : '');
-            // Show turn-order badge (relative position in play order)
-            var relOrder = ((p.turn_order !== undefined ? p.turn_order : 0) - myTurnOrder + totalPlayers) % totalPlayers;
-            html += '<span class="turn-order-badge">' + relOrder + '</span>';
-            html += '</span>';
-            html += '<span class="opponent-score">' + t('round_score') + ': ' + p.visible_score + ' | ' + t('total_score') + ': ' + p.score + '</span>';
-            if (IS_HOST && !IS_SPECTATOR) {
-                html += '<button class="btn-kick-game" onclick="kickPlayer(' + p.id + ', \'' + escapeHtml(p.name).replace(/'/g, "\\'") + '\')" title="Remove player">❌</button>';
-            }
-            html += '</div>';
-            html += '<div class="opponent-cards card-grid-small">' + renderCards(p.cards, false, p.id) + '</div>';
-            html += '</div>';
-
-            seatEl.innerHTML = html;
+            seatEl.innerHTML = renderOpponentHTML(opponents[i], myTurnOrder, totalPlayers);
         }
+    }
+
+    function updateMobileCarousel(opponents, myTurnOrder, totalPlayers) {
+        mobileOpponents = opponents;
+        // Clamp index
+        if (mobileCarouselIndex >= opponents.length) mobileCarouselIndex = 0;
+        if (mobileCarouselIndex < 0) mobileCarouselIndex = opponents.length - 1;
+
+        // Auto-jump to current player's turn opponent
+        for (var i = 0; i < opponents.length; i++) {
+            if (isCurrentPlayer(opponents[i].id)) {
+                mobileCarouselIndex = i;
+                break;
+            }
+        }
+
+        renderMobileOpponent();
+        renderCarouselDots();
+    }
+
+    function renderMobileOpponent() {
+        var display = document.getElementById('mobile-opponent-display');
+        if (!display) return;
+        if (mobileOpponents.length === 0) {
+            display.innerHTML = '<p style="text-align:center;color:var(--text-muted);">No opponents</p>';
+            return;
+        }
+        var myTurnOrder = 0;
+        var totalPlayers = gameState.players.length;
+        for (var i = 0; i < totalPlayers; i++) {
+            if (gameState.players[i].id === PLAYER_ID) {
+                myTurnOrder = gameState.players[i].turn_order !== undefined ? gameState.players[i].turn_order : i;
+                break;
+            }
+        }
+        var p = mobileOpponents[mobileCarouselIndex];
+        display.innerHTML = renderOpponentHTML(p, myTurnOrder, totalPlayers);
+    }
+
+    function renderCarouselDots() {
+        var dotsEl = document.getElementById('carousel-dots');
+        if (!dotsEl) return;
+        var html = '';
+        for (var i = 0; i < mobileOpponents.length; i++) {
+            var activeClass = (i === mobileCarouselIndex) ? ' active' : '';
+            var turnClass = isCurrentPlayer(mobileOpponents[i].id) ? ' is-current-turn' : '';
+            html += '<button class="carousel-dot' + activeClass + turnClass + '" data-idx="' + i + '"></button>';
+        }
+        dotsEl.innerHTML = html;
+    }
+
+    function updateMobilePiles() {
+        var mobilePiles = document.getElementById('mobile-piles');
+        if (!mobilePiles) return;
+        // Clone the piles from the desktop center-area
+        var piles = document.querySelector('.center-area .piles-row');
+        if (piles) {
+            mobilePiles.innerHTML = piles.outerHTML;
+            // Re-attach event listeners for mobile piles
+            var drawPile = mobilePiles.querySelector('#draw-pile, .draw-pile');
+            var discardPile = mobilePiles.querySelector('#discard-pile, .discard-pile');
+            if (drawPile) {
+                drawPile.addEventListener('click', function() {
+                    if (!isMyTurn || IS_SPECTATOR) return;
+                    if (turnPhase !== 'draw') return;
+                    if (myPlayer && myPlayer.held_card !== null) return;
+                    var sock = window.globalSocket;
+                    if (sock) sock.emit('draw_card', { code: GAME_CODE, from_discard: false });
+                });
+            }
+            if (discardPile) {
+                discardPile.addEventListener('click', function() {
+                    if (!isMyTurn || IS_SPECTATOR) return;
+                    if (turnPhase !== 'draw') return;
+                    if (myPlayer && myPlayer.held_card !== null) return;
+                    var sock = window.globalSocket;
+                    if (sock) sock.emit('draw_card', { code: GAME_CODE, from_discard: true });
+                });
+            }
+            var discardHeldBtn = mobilePiles.querySelector('#discard-held-btn, .btn-small');
+            if (discardHeldBtn) {
+                discardHeldBtn.addEventListener('click', function() {
+                    if (!isMyTurn || IS_SPECTATOR) return;
+                    var sock = window.globalSocket;
+                    if (sock) sock.emit('discard_held', { code: GAME_CODE });
+                    hideHeldCard();
+                    turnPhase = 'reveal';
+                });
+            }
+        }
+    }
+
+    function updateMobileMyArea() {
+        var mobileMyArea = document.getElementById('mobile-my-area');
+        if (!mobileMyArea) return;
+        if (!myPlayer) {
+            mobileMyArea.innerHTML = '<p style="text-align:center;color:var(--text-muted);">Spectator</p>';
+            return;
+        }
+        var html = '<div class="my-info">';
+        html += '<span class="my-name">' + escapeHtml(myPlayer.name) + '</span>';
+        html += '<span class="my-score">' + t('round_score') + ': ' + myPlayer.visible_score + ' | ' + t('total_score') + ': ' + myPlayer.score + '</span>';
+        html += '</div>';
+        var canClick = isMyTurn || gamePhase === 'initial_reveal';
+        html += '<div class="card-grid">' + renderCards(myPlayer.cards || [], canClick, PLAYER_ID) + '</div>';
+        mobileMyArea.innerHTML = html;
     }
     
     function updateMyCards() {
@@ -1081,5 +1229,79 @@ document.addEventListener('DOMContentLoaded', function() {
         div.textContent = text;
         return div.innerHTML;
     }
+
+    // ============ Mobile Carousel Controls ============
+    (function() {
+        // Prev / Next buttons
+        var prevBtn = document.getElementById('carousel-prev');
+        var nextBtn = document.getElementById('carousel-next');
+        if (prevBtn) {
+            prevBtn.addEventListener('click', function() {
+                if (mobileOpponents.length === 0) return;
+                mobileCarouselIndex = (mobileCarouselIndex - 1 + mobileOpponents.length) % mobileOpponents.length;
+                renderMobileOpponent();
+                renderCarouselDots();
+            });
+        }
+        if (nextBtn) {
+            nextBtn.addEventListener('click', function() {
+                if (mobileOpponents.length === 0) return;
+                mobileCarouselIndex = (mobileCarouselIndex + 1) % mobileOpponents.length;
+                renderMobileOpponent();
+                renderCarouselDots();
+            });
+        }
+
+        // Dot clicks (delegated)
+        var dotsEl = document.getElementById('carousel-dots');
+        if (dotsEl) {
+            dotsEl.addEventListener('click', function(e) {
+                var dot = e.target;
+                if (dot.classList.contains('carousel-dot') && dot.dataset.idx !== undefined) {
+                    mobileCarouselIndex = parseInt(dot.dataset.idx, 10);
+                    renderMobileOpponent();
+                    renderCarouselDots();
+                }
+            });
+        }
+
+        // Swipe support on carousel
+        var carouselEl = document.getElementById('mobile-opponent-carousel');
+        if (carouselEl) {
+            var touchStartX = 0;
+            var touchStartY = 0;
+            carouselEl.addEventListener('touchstart', function(e) {
+                touchStartX = e.changedTouches[0].clientX;
+                touchStartY = e.changedTouches[0].clientY;
+            }, { passive: true });
+            carouselEl.addEventListener('touchend', function(e) {
+                var dx = e.changedTouches[0].clientX - touchStartX;
+                var dy = e.changedTouches[0].clientY - touchStartY;
+                // Only count horizontal swipes (not vertical scrolls)
+                if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+                    if (dx < 0) {
+                        // Swipe left → next
+                        mobileCarouselIndex = (mobileCarouselIndex + 1) % mobileOpponents.length;
+                    } else {
+                        // Swipe right → prev
+                        mobileCarouselIndex = (mobileCarouselIndex - 1 + mobileOpponents.length) % mobileOpponents.length;
+                    }
+                    renderMobileOpponent();
+                    renderCarouselDots();
+                }
+            }, { passive: true });
+        }
+
+        // Recenter button — scrolls the mobile my-area into view
+        var recenterBtn = document.getElementById('mobile-recenter-btn');
+        if (recenterBtn) {
+            recenterBtn.addEventListener('click', function() {
+                var mobileMyArea = document.getElementById('mobile-my-area');
+                if (mobileMyArea) {
+                    mobileMyArea.scrollIntoView({ behavior: 'smooth', block: 'end' });
+                }
+            });
+        }
+    })();
 </script>
 {% endblock %}

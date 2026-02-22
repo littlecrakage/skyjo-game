@@ -1,25 +1,32 @@
 /* ===== Game Layout ===== */
+
+/* Override .container padding on game page */
 .game-wrapper {
     display: flex;
-    min-height: 100vh;
+    height: calc(100vh - 50px);
+    overflow: hidden;
+    margin: calc(-1 * var(--spacing-lg));
+    width: calc(100% + 2 * var(--spacing-lg));
 }
 
 .game-container {
     flex: 1;
-    min-height: 100vh;
+    height: 100%;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
 /* ===== Game Log Panel ===== */
 .game-log {
-    width: 280px;
-    min-width: 280px;
+    width: 250px;
+    min-width: 250px;
     background: var(--card-bg);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    max-height: 100vh;
+    max-height: 100%;
+    overflow: hidden;
 }
 
 .game-log-header {
@@ -106,9 +113,10 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: var(--spacing-md) var(--spacing-lg);
+    padding: var(--spacing-xs) var(--spacing-lg);
     background: var(--card-bg);
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
 }
 
 .game-info {
@@ -165,8 +173,10 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    padding: var(--spacing-lg);
-    gap: var(--spacing-lg);
+    padding: var(--spacing-sm);
+    gap: var(--spacing-sm);
+    min-height: 0;
+    overflow: hidden;
 }
 
 /* ===== Table Layout (circular seating) ===== */
@@ -179,7 +189,7 @@
         "tl  tc  tr"
         "ml  center  mr"
         "bl  me  br";
-    gap: var(--spacing-md);
+    gap: var(--spacing-xs);
     min-height: 0;
     align-items: center;
 }
@@ -209,8 +219,8 @@
 .seat-right .opponent,
 .seat-bottom-left .opponent,
 .seat-bottom-right .opponent {
-    min-width: 140px;
-    max-width: 200px;
+    min-width: 120px;
+    max-width: 180px;
 }
 
 /* Turn-order arrow indicators */
@@ -240,9 +250,9 @@
 .opponent {
     background: var(--card-bg);
     border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: var(--spacing-md);
-    min-width: 180px;
+    border-radius: var(--radius-md);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    min-width: 130px;
 }
 
 .opponent.is-current {
@@ -257,8 +267,8 @@
 .opponent-info {
     display: flex;
     justify-content: space-between;
-    margin-bottom: var(--spacing-sm);
-    font-size: var(--font-size-sm);
+    margin-bottom: 2px;
+    font-size: 0.75rem;
 }
 
 .opponent-name {
@@ -273,33 +283,33 @@
 .card-grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: var(--spacing-sm);
-    max-width: 320px;
+    gap: 4px;
+    max-width: 260px;
     margin: 0 auto;
 }
 
 .card-grid-small {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 4px;
+    gap: 3px;
 }
 
 .card-grid-small .card {
-    width: 32px;
-    height: 44px;
-    font-size: 12px;
+    width: 28px;
+    height: 38px;
+    font-size: 10px;
 }
 
 /* ===== Cards ===== */
 .card {
-    width: 60px;
-    height: 84px;
+    width: 50px;
+    height: 68px;
     border-radius: var(--radius-md);
     display: flex;
     align-items: center;
     justify-content: center;
     font-weight: 700;
-    font-size: var(--font-size-xl);
+    font-size: var(--font-size-lg);
     cursor: pointer;
     transition: transform 0.2s, box-shadow 0.2s;
     border: 2px solid var(--border);
@@ -391,26 +401,26 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: var(--spacing-lg);
-    min-height: 160px;
+    padding: var(--spacing-xs);
+    min-height: 0;
 }
 
 .piles-row {
     display: flex;
     align-items: center;
-    gap: var(--spacing-xl);
+    gap: var(--spacing-lg);
 }
 
 .piles {
     display: flex;
-    gap: var(--spacing-xl);
+    gap: var(--spacing-lg);
 }
 
 .pile {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--spacing-sm);
+    gap: 2px;
 }
 
 .pile-label {
@@ -419,8 +429,8 @@
 }
 
 .pile .card {
-    width: 70px;
-    height: 98px;
+    width: 56px;
+    height: 78px;
     position: relative;
 }
 
@@ -470,15 +480,15 @@
 }
 
 .held-card {
-    width: 50px;
-    height: 70px;
+    width: 44px;
+    height: 60px;
     font-size: var(--font-size-base);
 }
 
 /* ===== My Area ===== */
 .my-area {
     grid-area: me;
-    padding: var(--spacing-lg);
+    padding: var(--spacing-sm);
     background: var(--card-bg);
     border-radius: var(--radius-lg);
     border: 1px solid var(--border);
@@ -487,7 +497,7 @@
 .my-info {
     display: flex;
     justify-content: space-between;
-    margin-bottom: var(--spacing-md);
+    margin-bottom: var(--spacing-xs);
 }
 
 .my-name {
@@ -627,11 +637,25 @@
     font-size: var(--font-size-sm);
 }
 
-/* ===== Responsive: Hide log on small screens ===== */
+/* ===== Mobile Carousel (hidden on desktop) ===== */
+.mobile-carousel {
+    display: none;
+}
+.mobile-piles {
+    display: none;
+}
+.mobile-my-area {
+    display: none;
+}
+.mobile-recenter-btn {
+    display: none;
+}
+
+/* ===== Responsive: Compact log on medium screens ===== */
 @media (max-width: 1024px) {
     .game-log {
-        width: 220px;
-        min-width: 220px;
+        width: 200px;
+        min-width: 200px;
     }
 
     .table-layout {
@@ -639,39 +663,208 @@
     }
 }
 
+/* ===== Mobile: single-opponent carousel layout ===== */
 @media (max-width: 768px) {
     .game-wrapper {
         flex-direction: column;
+        height: calc(100vh - 50px);
     }
-    
+
+    /* Hide game log completely on mobile */
     .game-log {
-        width: 100%;
-        min-width: 100%;
-        max-height: 150px;
-        order: 2;
-        border-right: none;
-        border-top: 1px solid var(--border);
-    }
-    
-    .game-log-content {
-        max-height: 100px;
+        display: none;
     }
 
+    /* Hide the desktop table layout */
     .table-layout {
-        grid-template-columns: auto 1fr auto;
-        gap: var(--spacing-sm);
+        display: none !important;
     }
 
-    .seat-left .opponent,
-    .seat-right .opponent,
-    .seat-bottom-left .opponent,
-    .seat-bottom-right .opponent {
-        min-width: 100px;
+    /* Game area becomes vertical stack */
+    .game-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 4px;
+        gap: 4px;
+        min-height: 0;
+        overflow: hidden;
     }
 
-    .card-grid-small .card {
-        width: 24px;
-        height: 34px;
-        font-size: 10px;
+    /* ---- Carousel ---- */
+    .mobile-carousel {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        flex-shrink: 0;
+        gap: 4px;
+        padding: 2px 0;
+        flex-wrap: wrap;
+    }
+
+    .carousel-btn {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--card-bg);
+        font-size: 1.2rem;
+        font-weight: 700;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        color: var(--text-color);
+        z-index: 2;
+    }
+    .carousel-btn:active {
+        background: var(--primary);
+        color: #fff;
+    }
+
+    .mobile-opponent-display {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .mobile-opponent-display .opponent {
+        min-width: unset;
+        max-width: 100%;
+        padding: 4px 8px;
+    }
+
+    .mobile-opponent-display .opponent-info {
+        font-size: 0.75rem;
+        margin-bottom: 2px;
+    }
+
+    .mobile-opponent-display .card-grid-small {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 3px;
+        justify-items: center;
+    }
+
+    .mobile-opponent-display .card-grid-small .card {
+        width: 30px;
+        height: 42px;
+        font-size: 11px;
+    }
+
+    .carousel-dots {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+        gap: 6px;
+        padding: 2px 0;
+    }
+
+    .carousel-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--border);
+        border: none;
+        cursor: pointer;
+        padding: 0;
+        transition: background 0.2s;
+    }
+    .carousel-dot.active {
+        background: var(--primary);
+    }
+    .carousel-dot.is-current-turn {
+        box-shadow: 0 0 0 2px var(--primary);
+    }
+
+    /* ---- Mobile piles (center) ---- */
+    .mobile-piles {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: var(--spacing-md);
+        flex-shrink: 0;
+        padding: 2px 0;
+    }
+
+    .mobile-piles .pile .card {
+        width: 48px;
+        height: 66px;
+    }
+
+    .mobile-piles .pile {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+    }
+
+    .mobile-piles .held-card-area {
+        padding: 4px 8px;
+    }
+
+    .mobile-piles .held-card {
+        width: 40px;
+        height: 56px;
+    }
+
+    /* ---- Mobile my area ---- */
+    .mobile-my-area {
+        display: block;
+        padding: 4px 8px;
+        background: var(--card-bg);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border);
+        flex-shrink: 0;
+    }
+
+    .mobile-my-area .my-info {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 2px;
+        font-size: 0.8rem;
+    }
+
+    .mobile-my-area .my-name {
+        font-weight: 600;
+        font-size: 0.9rem;
+    }
+
+    .mobile-my-area .card-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 3px;
+        max-width: 220px;
+        margin: 0 auto;
+    }
+
+    .mobile-my-area .card {
+        width: 44px;
+        height: 60px;
+        font-size: var(--font-size-base);
+    }
+
+    /* ---- Recenter button ---- */
+    .mobile-recenter-btn {
+        display: none; /* shown via JS when scrolled away */
+        position: fixed;
+        bottom: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 6px 16px;
+        border-radius: 20px;
+        border: 1px solid var(--primary);
+        background: var(--primary);
+        color: #fff;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        z-index: 60;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .mobile-recenter-btn.visible {
+        display: block;
     }
 }
