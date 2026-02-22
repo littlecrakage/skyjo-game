@@ -169,7 +169,67 @@
     gap: var(--spacing-lg);
 }
 
-/* ===== Opponents Area ===== */
+/* ===== Table Layout (circular seating) ===== */
+.table-layout {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1.8fr 1fr;
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+        "tl  tc  tr"
+        "ml  center  mr"
+        "bl  me  br";
+    gap: var(--spacing-md);
+    min-height: 0;
+    align-items: center;
+}
+
+/* ===== Table Seats ===== */
+.table-seat {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 0;
+}
+
+.table-seat:empty {
+    display: none;
+}
+
+.seat-top-left   { grid-area: tl; }
+.seat-top        { grid-area: tc; }
+.seat-top-right  { grid-area: tr; }
+.seat-left       { grid-area: ml; }
+.seat-right      { grid-area: mr; }
+.seat-bottom-left  { grid-area: bl; }
+.seat-bottom-right { grid-area: br; }
+
+/* Side seats: opponent cards rendered sideways-compact */
+.seat-left .opponent,
+.seat-right .opponent,
+.seat-bottom-left .opponent,
+.seat-bottom-right .opponent {
+    min-width: 140px;
+    max-width: 200px;
+}
+
+/* Turn-order arrow indicators */
+.table-seat .opponent .turn-order-badge {
+    display: inline-block;
+    background: var(--primary);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    line-height: 20px;
+    text-align: center;
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+/* ===== Opponents (kept for card styling) ===== */
 .opponents-area {
     display: flex;
     justify-content: center;
@@ -327,6 +387,7 @@
 
 /* ===== Center Area (Piles) ===== */
 .center-area {
+    grid-area: center;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -416,7 +477,7 @@
 
 /* ===== My Area ===== */
 .my-area {
-    margin-top: auto;
+    grid-area: me;
     padding: var(--spacing-lg);
     background: var(--card-bg);
     border-radius: var(--radius-lg);
@@ -572,6 +633,10 @@
         width: 220px;
         min-width: 220px;
     }
+
+    .table-layout {
+        grid-template-columns: 1fr 1.5fr 1fr;
+    }
 }
 
 @media (max-width: 768px) {
@@ -590,5 +655,23 @@
     
     .game-log-content {
         max-height: 100px;
+    }
+
+    .table-layout {
+        grid-template-columns: auto 1fr auto;
+        gap: var(--spacing-sm);
+    }
+
+    .seat-left .opponent,
+    .seat-right .opponent,
+    .seat-bottom-left .opponent,
+    .seat-bottom-right .opponent {
+        min-width: 100px;
+    }
+
+    .card-grid-small .card {
+        width: 24px;
+        height: 34px;
+        font-size: 10px;
     }
 }

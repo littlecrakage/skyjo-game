@@ -48,50 +48,58 @@
 
     <!-- Main Game Area -->
     <div class="game-area">
-        <!-- Other Players (top) -->
-        <div id="opponents" class="opponents-area">
-            <!-- Rendered via JS -->
-        </div>
+        <div class="table-layout">
+            <!-- Seat positions around the table -->
+            <div id="pos-top-left" class="table-seat seat-top-left"></div>
+            <div id="pos-top" class="table-seat seat-top"></div>
+            <div id="pos-top-right" class="table-seat seat-top-right"></div>
+            <div id="pos-left" class="table-seat seat-left"></div>
 
-        <!-- Center: Draw & Discard Piles -->
-        <div class="center-area">
-            <div class="piles-row">
-                <div class="piles">
-                    <div id="draw-pile" class="pile draw-pile">
-                        <div class="card card-back">
-                            <span class="card-count" id="draw-count">0</span>
+            <!-- Center: Draw & Discard Piles -->
+            <div class="center-area">
+                <div class="piles-row">
+                    <div class="piles">
+                        <div id="draw-pile" class="pile draw-pile">
+                            <div class="card card-back">
+                                <span class="card-count" id="draw-count">0</span>
+                            </div>
+                            <span class="pile-label" data-i18n="draw">Draw</span>
                         </div>
-                        <span class="pile-label" data-i18n="draw">Draw</span>
+                        
+                        <div id="discard-pile" class="pile discard-pile">
+                            <div class="card" id="discard-top">
+                                <span class="card-value">-</span>
+                            </div>
+                            <span class="pile-label" data-i18n="discard">Discard</span>
+                        </div>
                     </div>
                     
-                    <div id="discard-pile" class="pile discard-pile">
-                        <div class="card" id="discard-top">
-                            <span class="card-value">-</span>
+                    <!-- Held Card (when player draws) -->
+                    <div id="held-card-area" class="held-card-area" style="display: none;">
+                        <div class="held-card-label" data-i18n="your_card">Your card:</div>
+                        <div class="card held-card" id="held-card">
+                            <span class="card-value">0</span>
                         </div>
-                        <span class="pile-label" data-i18n="discard">Discard</span>
+                        <button id="discard-held-btn" class="btn btn-secondary btn-small" data-i18n="discard_reveal">Discard & Reveal</button>
                     </div>
-                </div>
-                
-                <!-- Held Card (when player draws) -->
-                <div id="held-card-area" class="held-card-area" style="display: none;">
-                    <div class="held-card-label" data-i18n="your_card">Your card:</div>
-                    <div class="card held-card" id="held-card">
-                        <span class="card-value">0</span>
-                    </div>
-                    <button id="discard-held-btn" class="btn btn-secondary btn-small" data-i18n="discard_reveal">Discard & Reveal</button>
                 </div>
             </div>
-        </div>
 
-        <!-- Current Player's Cards (bottom) -->
-        <div class="my-area">
-            <div class="my-info">
-                <span class="my-name">{{ player.name if player else 'Spectator' }}</span>
-                <span class="my-score" id="my-score"><span data-i18n="round_score">Round</span>: 0 | <span data-i18n="total_score">Total</span>: {{ player.score if player else 0 }}</span>
+            <div id="pos-right" class="table-seat seat-right"></div>
+            <div id="pos-bottom-left" class="table-seat seat-bottom-left"></div>
+
+            <!-- Current Player's Cards (bottom center) -->
+            <div class="my-area">
+                <div class="my-info">
+                    <span class="my-name">{{ player.name if player else 'Spectator' }}</span>
+                    <span class="my-score" id="my-score"><span data-i18n="round_score">Round</span>: 0 | <span data-i18n="total_score">Total</span>: {{ player.score if player else 0 }}</span>
+                </div>
+                <div id="my-cards" class="card-grid">
+                    <!-- Rendered via JS -->
+                </div>
             </div>
-            <div id="my-cards" class="card-grid">
-                <!-- Rendered via JS -->
-            </div>
+
+            <div id="pos-bottom-right" class="table-seat seat-bottom-right"></div>
         </div>
     </div>
 
@@ -532,24 +540,63 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function updateOpponents() {
-        var container = document.getElementById('opponents');
+        // All seat position IDs
+        var seatIds = ['pos-top-left', 'pos-top', 'pos-top-right', 'pos-left', 'pos-right', 'pos-bottom-left', 'pos-bottom-right'];
+
+        // Clear all seats
+        for (var s = 0; s < seatIds.length; s++) {
+            var el = document.getElementById(seatIds[s]);
+            if (el) el.innerHTML = '';
+        }
+
+        // Collect opponents and find current player's turn order
         var opponents = [];
-        for (var i = 0; i < gameState.players.length; i++) {
-            if (gameState.players[i].id !== PLAYER_ID) {
+        var myTurnOrder = 0;
+        var totalPlayers = gameState.players.length;
+        for (var i = 0; i < totalPlayers; i++) {
+            if (gameState.players[i].id === PLAYER_ID) {
+                myTurnOrder = gameState.players[i].turn_order !== undefined ? gameState.players[i].turn_order : i;
+            } else {
                 opponents.push(gameState.players[i]);
             }
         }
-        
-        var html = '';
-        for (var i = 0; i < opponents.length; i++) {
+
+        // Sort opponents by turn order relative to current player (clockwise)
+        opponents.sort(function(a, b) {
+            var aOrd = ((a.turn_order !== undefined ? a.turn_order : 0) - myTurnOrder + totalPlayers) % totalPlayers;
+            var bOrd = ((b.turn_order !== undefined ? b.turn_order : 0) - myTurnOrder + totalPlayers) % totalPlayers;
+            return aOrd - bOrd;
+        });
+
+        // Map opponent count → seat positions (clockwise from player's left)
+        var positionMaps = {
+            1: ['pos-top'],
+            2: ['pos-left', 'pos-right'],
+            3: ['pos-left', 'pos-top', 'pos-right'],
+            4: ['pos-left', 'pos-top-left', 'pos-top-right', 'pos-right'],
+            5: ['pos-left', 'pos-top-left', 'pos-top', 'pos-top-right', 'pos-right'],
+            6: ['pos-bottom-left', 'pos-left', 'pos-top-left', 'pos-top-right', 'pos-right', 'pos-bottom-right'],
+            7: ['pos-bottom-left', 'pos-left', 'pos-top-left', 'pos-top', 'pos-top-right', 'pos-right', 'pos-bottom-right']
+        };
+
+        var positions = positionMaps[opponents.length] || positionMaps[7] || seatIds;
+
+        for (var i = 0; i < opponents.length && i < positions.length; i++) {
             var p = opponents[i];
+            var seatEl = document.getElementById(positions[i]);
+            if (!seatEl) continue;
+
             var classes = 'opponent';
             if (isCurrentPlayer(p.id)) classes += ' is-current';
             if (!p.is_connected) classes += ' disconnected';
-            
-            html += '<div class="' + classes + '">';
+
+            var html = '<div class="' + classes + '">';
             html += '<div class="opponent-info">';
-            html += '<span class="opponent-name">' + escapeHtml(p.name) + (p.is_bot ? ' 🤖' : '') + '</span>';
+            html += '<span class="opponent-name">' + escapeHtml(p.name) + (p.is_bot ? ' 🤖' : '');
+            // Show turn-order badge (relative position in play order)
+            var relOrder = ((p.turn_order !== undefined ? p.turn_order : 0) - myTurnOrder + totalPlayers) % totalPlayers;
+            html += '<span class="turn-order-badge">' + relOrder + '</span>';
+            html += '</span>';
             html += '<span class="opponent-score">' + t('round_score') + ': ' + p.visible_score + ' | ' + t('total_score') + ': ' + p.score + '</span>';
             if (IS_HOST && !IS_SPECTATOR) {
                 html += '<button class="btn-kick-game" onclick="kickPlayer(' + p.id + ', \'' + escapeHtml(p.name).replace(/'/g, "\\'") + '\')" title="Remove player">❌</button>';
@@ -557,8 +604,9 @@ document.addEventListener('DOMContentLoaded', function() {
             html += '</div>';
             html += '<div class="opponent-cards card-grid-small">' + renderCards(p.cards, false, p.id) + '</div>';
             html += '</div>';
+
+            seatEl.innerHTML = html;
         }
-        container.innerHTML = html;
     }
     
     function updateMyCards() {
